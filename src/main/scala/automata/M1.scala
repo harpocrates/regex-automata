@@ -29,10 +29,10 @@ final case class M1(
     val builder = new StringBuilder()
     builder ++= s"digraph m1 {\n"
     builder ++= s"  rankdir = LR;\n"
-    builder ++= s"  node [shape = doublecircle]; $terminal;\n"
-    builder ++= s"  node [shape = none]; \"\";\n"
-    builder ++= s"  node [shape = circle];\n"
-    builder ++= s"  \"\" -> \"$initial\";\n"
+    builder ++= s"  node [shape = doublecircle, label = \"\\N\"]; $terminal;\n"
+    builder ++= s"  node [shape = none, label = \"\"]; \"init\";\n"
+    builder ++= s"  node [shape = circle, label = \"\\N\"];\n"
+    builder ++= s"  \"init\" -> \"$initial\";\n"
 
     for ((from, transition) <- states) {
       transition match {
@@ -92,7 +92,7 @@ object M1 {
     */
   def fromRe(re: Re): M1 = {
 
-    var nextState: Int = 0
+    var nextState: Int = 1
     def freshState(): Int = {
       val s = nextState
       nextState += 1

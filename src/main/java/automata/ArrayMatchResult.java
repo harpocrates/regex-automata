@@ -4,33 +4,33 @@ import java.util.regex.MatchResult;
 
 public class ArrayMatchResult implements MatchResult {
   private final String matchedString;
-  private final int[] startOffsets;
-  private final int[] endOffsets;
+  
+  /** Starts offsets are stored at even indices and end offsets at odd indices */
+  private final int[] offsets;
 
-  public ArrayMatchResult(String matchedString, int[] startOffsets, int[] endOffsets) {
+  public ArrayMatchResult(String matchedString, int[] offsets) {
     this.matchedString = matchedString;
-    this.startOffsets = startOffsets;
-    this.endOffsets = endOffsets;
+    this.offsets = offsets;
   }
 
   @Override
   public int start(int group) {
-    return startOffsets[group];
+    return offsets[group << 1];
   }
 
   @Override
   public int start() {
-    return start(0);
+    return offsets[0];
   }
 
   @Override
   public int end(int group) {
-    return endOffsets[group];
+    return offsets[group << 1 | 1];
   }
 
   @Override
   public int end() {
-    return end(0);
+    return offsets[1];
   }
 
   @Override
@@ -45,7 +45,7 @@ public class ArrayMatchResult implements MatchResult {
 
   @Override
   public int groupCount() {
-    return startOffsets.length;
+    return offsets.length >> 1;
   }
 }
 
