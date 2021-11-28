@@ -1,5 +1,6 @@
 /.bsp/
 target/
+project/target
 
 # Ignore DOT files
 *.dot

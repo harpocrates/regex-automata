@@ -72,10 +72,11 @@ final case class M4(
     */
   def simulate(inputString: String, m3Path: Array[Set[Int]]): Option[ArrayMatchResult] = {
     var currentState = initial
-    var pos = m3Path.length - 1
-    val captureGroups = new Array[Int](groupCount * 2)
+    val len = m3Path.length
+    var pos = 0
+    val captureGroups = new Array[Int]((groupCount + 1) * 2)
 
-    while (pos >= 0) {
+    while (pos < len) {
       val step = m3Path(pos)
       val transitions = states.getOrElse(currentState, Map.empty).get(step)
       transitions match {
@@ -87,7 +88,7 @@ final case class M4(
             captureGroups(idx) = pos
           }
       }
-      pos -= 1
+      pos += 1
     }
 
     if (terminal == currentState) Some(new ArrayMatchResult(inputString, captureGroups)) else None

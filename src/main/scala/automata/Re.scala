@@ -26,7 +26,7 @@ object Re {
   def parse(src: String): Re = {
     var pos: Int = 0
     val len: Int = src.length
-    var groupCount: Int = 1
+    var groupCount: Int = 0
 
     // Called after seeing `<first-regex>|<rest>`
     def parseUnion(): Re = {
