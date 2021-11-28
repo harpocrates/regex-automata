@@ -42,7 +42,7 @@ final case class M4(
     builder ++= s"  node [shape = doublecircle, label = \"\\N\"]; \"$terminal\";\n"
     builder ++= s"  node [shape = none, label = \"\"]; \"init\";\n"
     builder ++= s"  node [shape = circle, label = \"\\N\"];\n"
-    
+
     builder ++= s"  \"init\" -> \"$initial\";\n"
 
     for {
@@ -67,10 +67,11 @@ final case class M4(
 
   /** Run against the output from an M3 automata
     *
+    * @param input input test string
     * @param m3Path states visited in M3 (see the output of `M3.simulate`)
     * @return array of match results
     */
-  def simulate(inputString: String, m3Path: Array[Set[Int]]): Option[ArrayMatchResult] = {
+  def simulate(input: CharSequence, m3Path: Array[Set[Int]]): Option[ArrayMatchResult] = {
     var currentState = initial
     val len = m3Path.length
     var pos = 0
@@ -91,7 +92,8 @@ final case class M4(
       pos += 1
     }
 
-    if (terminal == currentState) Some(new ArrayMatchResult(inputString, captureGroups)) else None
+    if (terminal != currentState) None // TODO: unreachable?
+    else Some(new ArrayMatchResult(input.toString, captureGroups))
   }
 
 }

@@ -6,11 +6,12 @@ import org.scalatest.matchers.should.Matchers
 
 class RegexSpec extends AnyFlatSpec with Matchers {
   "((a)∗|b)(ab|b)" should "match 'aaab'" in {
-    val re = CompiledRe("((a)*|b)(ab|b)")
+    val pattern = DfaPattern.interpretted("((a)*|b)(ab|b)")
 
-    val matchedOpt = re.matchComplete("aaab")
-    assert(matchedOpt.nonEmpty, "regex matches")
-    val matched: MatchResult = matchedOpt.get
+    val matches: Boolean = pattern.checkMatch("aaab")
+    val matched: MatchResult = pattern.captureMatch("aaab")
+    assert(matches, "regex checkMatch-es")
+    assert(matched != null, "regex captureMatch-es")
 
     assert(matched.groupCount == 3, "regex has right number of captures")
 

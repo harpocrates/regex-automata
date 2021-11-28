@@ -40,7 +40,7 @@ final case class M3(
     builder ++= s"  node [shape = doublecircle, label = \"\\N\"]; ${terminals.map(t => s"\"${renderSet(t)}\"").mkString(" ")};\n"
     builder ++= s"  node [shape = none, label = \"\"]; \"init\";\n"
     builder ++= s"  node [shape = circle, label = \"\\N\"];\n"
-    
+
     builder ++= s"  \"init\" -> \"${renderSet(initial)}\";\n"
 
     for ((from, transitions) <- states; (c, to) <- transitions) {
@@ -56,9 +56,9 @@ final case class M3(
     * @param input input string, must contain only characters from the BMP (no surrogates)
     * @return the array of states if it matched (in reverse order seen)
     */
-  def simulate(input: String): Option[Array[Set[Int]]] = {
-    var currentState = initial
-    var pos = input.length
+  def captureSimulate(input: CharSequence): Option[Array[Set[Int]]] = {
+    var currentState: Set[Int] = initial
+    var pos: Int = input.length
     val simulated = new Array[Set[Int]](input.length + 1)
 
     while (pos > 0) {
@@ -74,6 +74,30 @@ final case class M3(
 
     simulated(0) = currentState
     if (terminals.contains(currentState)) Some(simulated) else None
+  }
+
+  /** Run a regex on an input
+    *
+    * Equivalent to {{{captureSimulate(input).nonEmpty}}} but more efficient
+    *
+    * @param input input string, must contain only characters from the BMP (no surrogates)
+    * @return whether the input matches
+    */
+  def checkSimulate(input: CharSequence): Boolean = {
+    var currentState: Set[Int] = initial
+    var pos: Int = input.length
+
+    while (pos > 0) {
+      pos -= 1
+      val c = input.charAt(pos)
+      val transitions = states.getOrElse(currentState, Map.empty).get(c)
+      transitions match {
+        case None => return false
+        case Some(nextState) => currentState = nextState
+      }
+    }
+
+    terminals.contains(currentState)
   }
 }
 

@@ -1,40 +1,44 @@
 package automata
 
 class CompiledRe(
-  val regexString: String,
-  val re: Re,
-  val m1: M1,
-  val m2: M2,
+  val pattern: String,
+  val re: Option[Re],
+  val m1: Option[M1],
+  val m2: Option[M2],
   val m3: M3,
   val m4: M4
-) {
+) extends DfaPattern {
 
-  def this(m3: M3, m4: M4) =
-    this(null, null, null, null, m3, m4)
+  def checkMatch(input: CharSequence): Boolean =
+    m3.checkSimulate(input)
+
+  def captureMatch(input: CharSequence): ArrayMatchResult =
+    captureMatchOpt(input).orNull
 
   /** Match an input string against the compiled regex
     *
     * @param input input test string
-    * @return capture group results (if anything matched)
+    * @return capture group results (if anything matched) or else `null`
     */
-  def matchComplete(input: String): Option[ArrayMatchResult] =
-    m3.simulate(input).flatMap(m4.simulate(input, _))
+  def captureMatchOpt(input: CharSequence): Option[ArrayMatchResult] =
+    m3.captureSimulate(input).flatMap(m4.simulate(input.toString, _))
 }
 
 object CompiledRe {
 
   /** Compile a regular expression
     *
-    * @param regexString source-code of the regex
+    * @param regex source-code of the regex
     * @param keepDebug whether to store all the extra intermediate automata
     */
-  def apply(regexString: String, keepDebug: Boolean = false): CompiledRe = {
-    val re = Re.parse(regexString)
+  def apply(regex: String, keepDebug: Boolean = false): CompiledRe = {
+    val re = Re.parse(regex)
     val m1 = M1.fromRe(re)
     val m2 = M2.fromM1(m1)
     val m3 = M3.fromM2(m2)
     val m4 = M4.fromM1M2M3(m1, m2, m3)
 
-    if (keepDebug) new CompiledRe(regexString, re, m1, m2, m3, m4) else new CompiledRe(m3, m4)
+    if (keepDebug) new CompiledRe(regex, Some(re), Some(m1), Some(m2), m3, m4)
+    else new CompiledRe(regex, None, None, None, m3, m4)
   }
 }
