@@ -1,6 +1,8 @@
 package automata
 
 import scala.collection.mutable
+import java.util.{Map => JavaMap, Collections}
+import scala.jdk.CollectionConverters._
 
 /** DFA obtained from a powerset construction on a reversed M2 NFA
   *
@@ -13,7 +15,26 @@ final case class M3(
   states: Map[Set[Int], Map[Char, Set[Int]]],
   initial: Set[Int],
   terminals: Set[Set[Int]]
-) {
+) extends Dfa[Set[Int], Character, Unit] {
+
+  def isTerminal(state: Set[Int]) = terminals.contains(state)
+
+  def transitions(state: Set[Int]): JavaMap[Character, Dfa.Transition[Set[Int], Unit]] = {
+
+    final class NoAnnotTrans(to: Set[Int]) extends Dfa.Transition[Set[Int], Unit] {
+      def annotation = ()
+      def targetState = to
+    }
+
+    states.get(state) match {
+      case None => Collections.emptyMap()
+      case Some(ts) =>
+        ts.view
+          .map { case (k, v) => (Character.valueOf(k), new NoAnnotTrans(v)) }
+          .toMap[Character, Dfa.Transition[Set[Int], Unit]]
+          .asJava
+    }
+  }
 
   /** All reachable states
     *
@@ -54,15 +75,17 @@ final case class M3(
   /** Run a regex on an input
     *
     * @param input input string, must contain only characters from the BMP (no surrogates)
-    * @return the array of states if it matched (in reverse order seen)
+    * @return the array of states if it matched (in the order seen)
     */
   def captureSimulate(input: CharSequence): Option[Array[Set[Int]]] = {
     var currentState: Set[Int] = initial
     var pos: Int = input.length
+    var simulatedOff: Int = 0
     val simulated = new Array[Set[Int]](input.length + 1)
 
     while (pos > 0) {
-      simulated(pos) = currentState
+      simulated(simulatedOff) = currentState
+      simulatedOff += 1
       pos -= 1
       val c = input.charAt(pos)
       val transitions = states.getOrElse(currentState, Map.empty).get(c)
@@ -72,7 +95,7 @@ final case class M3(
       }
     }
 
-    simulated(0) = currentState
+    simulated(simulatedOff) = currentState
     if (terminals.contains(currentState)) Some(simulated) else None
   }
 
@@ -138,7 +161,7 @@ object M3 {
         if (!states.contains(outState)) toVisit.addOne(outState)
       }
     }
-   
+
     val terminals: Set[Set[Int]] = states
       .keys
       .filter(key => key.intersect(m2.initial.keySet).nonEmpty)

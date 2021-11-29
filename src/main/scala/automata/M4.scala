@@ -1,6 +1,9 @@
 package automata
 
+import java.lang.{Iterable => JavaIterable}
 import scala.collection.mutable
+import java.util.{Map => JavaMap, Collections}
+import scala.jdk.CollectionConverters._
 
 /** DFA obtained by augumenting M2 using M1 and M3
   *
@@ -13,7 +16,16 @@ final case class M4(
   states: Map[Int, Map[Set[Int], M4.Transition]],
   initial: Int,
   terminal: Int
-) {
+) extends Dfa[Int, Set[Int], JavaIterable[RegexMarker]] {
+
+  def isTerminal(state: Int): Boolean = state == terminal
+
+  def transitions(state: Int): JavaMap[Set[Int], Dfa.Transition[Int, JavaIterable[RegexMarker]]] =
+    states.get(state) match {
+      case None => Collections.emptyMap()
+      case Some(ts) =>
+        ts.view.toMap[Set[Int], Dfa.Transition[Int, JavaIterable[RegexMarker]]].asJava
+    }
 
   /** Generate the source-code for a valid DOT graph
     *
@@ -65,37 +77,41 @@ final case class M4(
     .maxOption
     .getOrElse(0)
 
-  /** Run against the output from an M3 automata
+  /** Run against the output from an M3 automata, but in reverse
     *
     * @param input input test string
     * @param m3Path states visited in M3 (see the output of `M3.simulate`)
+    * @param printDebugInfo print to STDERR a trace of what is happening
     * @return array of match results
     */
-  def simulate(input: CharSequence, m3Path: Array[Set[Int]]): Option[ArrayMatchResult] = {
+  def simulate(input: CharSequence, m3Path: Array[Set[Int]], printDebugInfo: Boolean): Option[ArrayMatchResult] = {
     var currentState = initial
-    val len = m3Path.length
-    var pos = 0
-    val captureGroups = new Array[Int]((groupCount + 1) * 2)
+    var pos = m3Path.length - 1
+    var strOffset = 0
+    val captureGroups = Array.fill((groupCount + 1) * 2)(-1)
+    if (printDebugInfo) System.err.println(s"[M4] starting run on: $m3Path") 
 
-    while (pos < len) {
+    while (pos >= 0) {
       val step = m3Path(pos)
+      if (printDebugInfo) System.err.println(s"[M4] entering $currentState")
       val transitions = states.getOrElse(currentState, Map.empty).get(step)
       transitions match {
         case None => return None // TODO: unreachable?
         case Some(M4.Transition(nextState, groups)) =>
-          currentState = nextState
           for (group <- groups) {
             val idx = if (group.isStart) group.groupIdx * 2 else group.groupIdx * 2 + 1
-            captureGroups(idx) = pos
+            captureGroups(idx) = strOffset
+            if (printDebugInfo) System.err.println(s"[M4] capturing $group: groups($idx) = $strOffset")
           }
+          currentState = nextState
       }
-      pos += 1
+      pos -= 1
+      strOffset += 1
     }
 
     if (terminal != currentState) None // TODO: unreachable?
     else Some(new ArrayMatchResult(input.toString, captureGroups))
   }
-
 }
 
 object M4 {
@@ -103,7 +119,18 @@ object M4 {
   /** @param to target state
     * @param groups groups to track in this transition
     */
-  final case class Transition(to: Int, groups: List[M2.GroupMarker])
+  final case class Transition(
+    to: Int,
+    groups: List[M2.GroupMarker]
+  ) extends Dfa.Transition[Int, JavaIterable[RegexMarker]] {
+    def targetState = to
+    val annotation: JavaIterable[RegexMarker] = groups.view
+      .map[RegexMarker] {
+        case M2.GroupMarker(true, groupIdx) => new RegexMarker.GroupStart(groupIdx)
+        case M2.GroupMarker(false, groupIdx) => new RegexMarker.GroupEnd(groupIdx)
+      }
+      .asJava
+  }
 
   def compareMarkers(m1: M2.PathMarker, m2: M2.PathMarker): Int = {
     if (m1 == m2) 0
@@ -134,14 +161,13 @@ object M4 {
     java.lang.Boolean.compare(p1.nonEmpty, p2.nonEmpty)
   }
 
-  /** Construct M4 from M1, M2, and M3
+  /** Construct M4 from M2, and M3
     *
-    * @param m1 M1 NFA (tracks empty transitions)
     * @param m2 M2 NFA (tracks only character transitions)
     * @param m3 M3 DFA (powerset construction on inverted M2)
     * @return M4 DFA
     */
-  def fromM1M2M3(m1: M1, m2: M2, m3: M3): M4 = {
+  def fromM2M3(m2: M2, m3: M3): M4 = {
 
     // Mapping from states in M2 to states in M3 containing the M2 state
     val stateToPowerState: Map[Int, Set[Set[Int]]] = m3

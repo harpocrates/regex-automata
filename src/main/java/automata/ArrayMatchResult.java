@@ -6,7 +6,7 @@ public class ArrayMatchResult implements MatchResult {
   private final String matchedString;
   
   /** Starts offsets are stored at even indices and end offsets at odd indices */
-  private final int[] offsets;
+  public final int[] offsets;
 
   public ArrayMatchResult(String matchedString, int[] offsets) {
     this.matchedString = matchedString;
@@ -35,7 +35,9 @@ public class ArrayMatchResult implements MatchResult {
 
   @Override
   public String group(int i) {
-    return matchedString.substring(start(i), end(i));
+    int start = start(i);
+    int end = end(i);
+    return (start < 0 || end < 0) ? null : matchedString.substring(start, end);
   }
 
   @Override

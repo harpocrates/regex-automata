@@ -6,5 +6,5 @@ lazy val root = (project in file("."))
   .settings(
     name := "regex-automata",
     libraryDependencies += "org.scalatest" %% "scalatest" % "3.2.9" % Test,
-//    libraryDependencies += "org.ow2.asm" % "asm" % "9.2"
+    libraryDependencies += "org.ow2.asm" % "asm" % "9.2"
   )
