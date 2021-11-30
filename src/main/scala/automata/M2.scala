@@ -52,7 +52,7 @@ object M2 {
   final case object Nop extends EmptyTransition
   final case object Plus extends PathMarker
   final case object Minus extends PathMarker
-  
+
   /** @param isStart is this the start or end of a group?
     * @param groupIdx index of the group
     */
@@ -60,7 +60,7 @@ object M2 {
 
   /** Convert an M1 NFA into an M2 NFA
     *
-    * This is basically just collapsing states 
+    * This is basically just collapsing states
     *
     * @param m1 NFA to cnovert
     * @return equivalent NFA
@@ -74,7 +74,7 @@ object M2 {
       .+(m1.terminal)
 
     /* Use Floyd–Warshall's algorithm to get states reachable via empty edges and track the
-     * "shortest" paths where a path whose head is a `+` is shorter than one whose head is a `-` 
+     * "shortest" paths where a path whose head is a `+` is shorter than one whose head is a `-`
      *
      * Entry `k -> Map(v1 -> l1, v2 -> l2)` means that
      *
@@ -112,7 +112,7 @@ object M2 {
         case (_, Some(Plus)) => reachableFrom(i).addOne(j, Plus)
 
         // `i` -> `j` is not going to be improved
-        case _ => 
+        case _ =>
       }
     }
 
@@ -159,7 +159,7 @@ object M2 {
           from -> (c -> newTargets)
       }
       .toMap
-    
+
     M2(
       states,
       reachableFrom(m1.initial)

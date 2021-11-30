@@ -1,9 +1,13 @@
 package automata
 
+import scala.annotation.switch
+import java.lang.{Character => JavaCharacter}
+
+import java.util.OptionalInt;
 // Follow https://www.labs.hpe.com/techreports/2012/HPL-2012-41R1.pdf
 
 sealed abstract class Re
-object Re {
+object Re extends RegexVisitor[Re, Re] {
 
   /** Matches nothing */
   final case object Epsilon extends Re
@@ -20,80 +24,48 @@ object Re {
   /** Match the same pattern as many/few times as possible */
   final case class Kleene(lhs: Re, isLazy: Boolean) extends Re
 
+  /** Match the same pattern as many/few times as possible, but at least once */
+  final case class Plus(lhs: Re, isLazy: Boolean) extends Re
+
   /** Group sub-capture */
   final case class Group(arg: Re, idx: Int) extends Re
 
-  def parse(src: String): Re = {
-    var pos: Int = 0
-    val len: Int = src.length
-    var groupCount: Int = 0
-
-    // Called after seeing `<first-regex>|<rest>`
-    def parseUnion(): Re = {
-      var union: Re = parseConcat()
-      while (pos < len && src.charAt(pos) == '|') {
-        pos += 1
-        union = Union(union, parseConcat())
-      }
-      union
+  def transform[O](visitor: RegexVisitor[Re, O], re: Re): O =
+    re match {
+      case Epsilon => visitor.visitEpsilon()
+      case Character(c) => visitor.visitCharacter(c)
+      case Concat(lhs, rhs) => visitor.visitConcatenation(lhs, rhs)
+      case Union(Epsilon, rhs) => visitor.visitOptional(rhs, true)
+      case Union(lhs, Epsilon) => visitor.visitOptional(lhs, false)
+      case Union(lhs, rhs) => visitor.visitAlternation(lhs, rhs)
+      case Kleene(lhs, isLazy) => visitor.visitKleene(lhs, isLazy)
+      case Plus(lhs, isLazy) => visitor.visitPlus(lhs, isLazy)
+      case Group(arg, idx) => visitor.visitGroup(arg, OptionalInt.of(idx))
     }
 
-    def parseConcat(): Re = {
-      var concat: Re = Epsilon
-      while (pos < len && src.charAt(pos) != ')' && src.charAt(pos) != '|') {
-        val kleene = parseKleene()
-        concat = if (concat == Epsilon) kleene else Concat(concat, kleene)
-      }
-      concat
-    }
+  override def visitEpsilon() =
+    Epsilon
 
-    // Called on non-empty input
-    def parseKleene(): Re = {
-      var kleene: Re = parseGroup()
-      while (pos < len && src.charAt(pos) == '*') {
-        pos += 1
-        val isLazy = if (pos < len && src.charAt(pos) == '?') {
-          pos += 1
-          true
-        } else {
-          false
-        }
-        kleene = Kleene(kleene, isLazy)
-      }
-      kleene
-    }
+  override def visitCharacter(char: Char) =
+    Character(char)
 
-    // Called on a non-empty input
-    def parseGroup(): Re = {
-      if (src.charAt(pos) == '(') {
-        pos += 1
-        val group = if (pos + 1 < len && src.charAt(pos) == '?' && src.charAt(pos + 1) == ':') {
-          pos += 2
-          parseUnion()
-        } else {
-          val groupIdx = groupCount
-          groupCount += 1
-          Group(parseUnion(), groupIdx)
-        }
-        assert(src.charAt(pos) == ')', "expected ')' to complete group")
-        pos += 1
-        group
-      } else {
-        parseCharacter()
-      }
-    }
+  override def visitConcatenation(lhs: Re, rhs: Re) =
+    Concat(lhs, rhs)
 
-    // Called on a non-empty input
-    def parseCharacter(): Re = {
-      if (src.charAt(pos) == '\\') {
-        pos += 1
-        assert(pos < len, "expected escaped character but got end of regex")
-      }
-      val re = Character(src.charAt(pos))
-      pos += 1
-      re
-    }
+  override def visitAlternation(lhs: Re, rhs: Re) =
+    Union(lhs, rhs)
 
-    parseUnion()
-  }
+  override def visitKleene(lhs: Re, isLazy: Boolean) =
+    Kleene(lhs, isLazy)
+
+  override def visitOptional(lhs: Re, isLazy: Boolean) =
+    if (isLazy) Union(Epsilon, lhs) else  Union(lhs, Epsilon)
+
+  override def visitPlus(lhs: Re, isLazy: Boolean) =
+    Plus(lhs, isLazy)
+
+  override def visitGroup(arg: Re, groupIndex: OptionalInt) =
+    if (groupIndex.isPresent()) Group(arg, groupIndex.getAsInt()) else arg
+
+  def parse(src: String): Re = RegexParser.parse(Re, src)
 }

@@ -136,6 +136,14 @@ object M1 {
           states += from -> transition
           from
 
+        case Re.Plus(lhs, isLazy) =>
+          val lhsTo = freshState()
+          val lhsFrom = convert(lhs, lhsTo)
+          val (plusState, minusState) = if (isLazy) (to, lhsFrom) else (lhsFrom, to)
+          val transition = M1.PlusMinus(plusState, minusState)
+          states += lhsTo -> transition
+          lhsFrom
+
         case Re.Group(arg, groupIdx) =>
           val argTo = freshState()
           val from = freshState()
