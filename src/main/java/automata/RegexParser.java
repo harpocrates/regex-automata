@@ -98,7 +98,7 @@ final class RegexParser<A> {
       switch (c) {
         case '*':
         case '?':
-        case ':':
+        case '+':
           position++;
           break;
 

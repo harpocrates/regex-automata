@@ -4,7 +4,7 @@ import java.util.regex.MatchResult;
 
 public class ArrayMatchResult implements MatchResult {
   private final String matchedString;
-  
+
   /** Starts offsets are stored at even indices and end offsets at odd indices */
   public final int[] offsets;
 

@@ -5,7 +5,7 @@ import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.should.Matchers
 
 class RegexSpec extends AnyFlatSpec with Matchers {
-  "((a)∗|b)(ab|b)" should "match 'aaab' in interpreted mode" in {
+  "((a)*|b)(ab|b)" should "match 'aaab' in interpreted mode" in {
     val pattern = DfaPattern.interpreted("((a)*|b)(ab|b)")
 
     val matches: Boolean = pattern.checkMatch("aaab")
@@ -115,4 +115,73 @@ class RegexSpec extends AnyFlatSpec with Matchers {
     assert(matched == null, "regex does not captureMatch")
   }
 
+  "(x+x+)+y" should "match 'xxxy' in interpreted mode" in {
+    val pattern = DfaPattern.interpreted("(x+x+)+y")
+
+    val matches: Boolean = pattern.checkMatch("xxxy")
+    val matched: MatchResult = pattern.captureMatch("xxxy")
+    assert(matches, "regex checkMatch-es")
+    assert(matched != null, "regex captureMatch-es")
+
+    assert(matched.groupCount == 1, "regex has right number of captures")
+
+    assert(matched.start(0) == 0, "first group start")
+    assert(matched.end(0) == 3, "first group end")
+    assert(matched.group(0) == "xxx", "first group")
+  }
+
+  it should "match 'xxxy' in compiled mode" in {
+    val pattern = DfaPattern.compile("(x+x+)+y")
+
+    val matches: Boolean = pattern.checkMatch("xxxy")
+    val matched: MatchResult = pattern.captureMatch("xxxy")
+    assert(matches, "regex checkMatch-es")
+    assert(matched != null, "regex captureMatch-es")
+
+    assert(matched.groupCount == 1, "regex has right number of captures")
+
+    assert(matched.start(0) == 0, "first group start")
+    assert(matched.end(0) == 3, "first group end")
+    assert(matched.group(0) == "xxx", "first group")
+  }
+
+  it should "not match 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx' in interpreted mode" in {
+    val pattern = DfaPattern.interpreted("(x+x+)+y")
+
+    val matches: Boolean = pattern.checkMatch("xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx")
+    val matched: MatchResult = pattern.captureMatch("xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx")
+    assert(!matches, "regex does not checkMatch")
+    assert(matched == null, "regex does not captureMatch")
+  }
+
+  it should "not match 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx' in compiled mode" in {
+    val pattern = DfaPattern.compile("(x+x+)+y")
+
+    val matches: Boolean = pattern.checkMatch("xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx")
+    val matched: MatchResult = pattern.captureMatch("xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx")
+    assert(!matches, "regex does not checkMatch")
+    assert(matched == null, "regex does not captureMatch")
+  }
+
+  "uv" should "match 'uv' in interpreted mode" in {
+    val pattern = DfaPattern.interpreted("uv")
+
+    val matches: Boolean = pattern.checkMatch("uv")
+    val matched: MatchResult = pattern.captureMatch("uv")
+    assert(matches, "regex checkMatch-es")
+    assert(matched != null, "regex captureMatch-es")
+
+    assert(matched.groupCount == 0, "regex has right number of captures")
+  }
+
+  it should "match 'uv' in compiled mode" in {
+    val pattern = DfaPattern.compile("uv")
+
+    val matches: Boolean = pattern.checkMatch("uv")
+    val matched: MatchResult = pattern.captureMatch("uv")
+    assert(matches, "regex checkMatch-es")
+    assert(matched != null, "regex captureMatch-es")
+
+    assert(matched.groupCount == 0, "regex has right number of captures")
+  }
 }

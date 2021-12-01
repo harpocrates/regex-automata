@@ -7,7 +7,7 @@ import scala.collection.mutable
 
 /** NFA corresponding to regex
   *
-  * This includes start/end group transitions (which signify the start and end 
+  * This includes start/end group transitions (which signify the start and end
   * of a regex group) as well as plus/minus transitions (which signify a
   * prioritized alternation).
   *

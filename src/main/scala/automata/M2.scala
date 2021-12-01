@@ -82,7 +82,10 @@ object M2 {
      *   - `k` can reach `v2` and the shortest path starts with `l2`
      */
     val reachableFrom: Map[Int, mutable.Map[Int, EmptyTransition]] = m1.states
-      .map { case (from, _) => from -> mutable.Map.apply[Int, EmptyTransition](from -> Nop) }
+      .iterator
+      .map { case (from, _) => from }
+      .concat(List(m1.terminal))
+      .map { from => from -> mutable.Map.apply[Int, EmptyTransition](from -> Nop) }
       .toMap
     for ((from, transition) <- m1.states) {
       transition match {
@@ -99,7 +102,7 @@ object M2 {
             .addOne(to, GroupMarker(false, groupIdx))
       }
     }
-    for (k <- m1.states.keys; i <- m1.states.keys; j <- m1.states.keys) {
+    for (k <- reachableFrom.keys; i <- reachableFrom.keys; j <- reachableFrom.keys) {
       val reachIj: Option[EmptyTransition] = reachableFrom(i).get(j)
       val reachIk: Option[EmptyTransition] = reachableFrom(i).get(k)
       val reachKj: Option[EmptyTransition] = reachableFrom(k).get(j)
@@ -120,7 +123,7 @@ object M2 {
       val path = List.newBuilder[PathMarker]
       var current = from
       var firstIteration = true
-      while (current != to || firstIteration) {
+      while (m1.states.contains(current) && (current != to || firstIteration)) {
         firstIteration = false
         current = m1.states(current) match {
           case M1.Character(_, to) =>

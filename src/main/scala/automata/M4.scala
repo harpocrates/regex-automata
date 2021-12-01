@@ -69,13 +69,13 @@ final case class M4(
   }
 
   /** Count the number of groups */
-  def groupCount: Int = states
+  def groupCount: Int = 1 + states
     .iterator
     .flatMap(_._2.iterator)
     .flatMap { case (_, M4.Transition(_, groups)) => groups.iterator }
     .map(_.groupIdx)
     .maxOption
-    .getOrElse(0)
+    .getOrElse(-1)
 
   /** Run against the output from an M3 automata, but in reverse
     *
@@ -88,7 +88,7 @@ final case class M4(
     var currentState = initial
     var pos = m3Path.length - 1
     var strOffset = 0
-    val captureGroups = Array.fill((groupCount + 1) * 2)(-1)
+    val captureGroups = Array.fill(groupCount * 2)(-1)
     if (printDebugInfo) System.err.println(s"[M4] starting run on: $m3Path") 
 
     while (pos >= 0) {

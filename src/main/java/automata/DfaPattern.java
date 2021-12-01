@@ -22,7 +22,7 @@ public interface DfaPattern {
     final M3 m3 = M3.fromM2(m2);
     final M4 m4 = M4.fromM2M3(m2, m3);
 
-    final String className = CompiledDfaCodegen.freshName();
+    final String className = "automata/DfaPattern$Compiled";
     final boolean debugInfo = false;
     final int classFlags = Opcodes.ACC_PRIVATE | Opcodes.ACC_FINAL | Opcodes.ACC_SYNTHETIC;
     final byte[] classBytes = CompiledDfaCodegen
@@ -38,7 +38,8 @@ public interface DfaPattern {
       .toByteArray();
     final Object compiled = MethodHandles
       .lookup()
-      .defineClass(classBytes)
+      .defineHiddenClass(classBytes, true)
+      .lookupClass()
       .getDeclaredConstructor()
       .newInstance();
 

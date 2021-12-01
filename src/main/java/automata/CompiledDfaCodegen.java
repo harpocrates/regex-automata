@@ -22,9 +22,6 @@ import org.objectweb.asm.Type;
  */
 public final class CompiledDfaCodegen {
 
-  private static final AtomicLong COMPILED_SUFFIX = new AtomicLong();
-  private static final String COMPILED_NAME_BASE = "automata/DfaPattern$Compiled";
-
   // Class name constants
   private static final String DFAPATTERN_CLASS_NAME = Type.getInternalName(DfaPattern.class);
   private static final String OBJECT_CLASS_NAME = Type.getInternalName(Object.class);
@@ -71,15 +68,6 @@ public final class CompiledDfaCodegen {
     mv.visitFieldInsn(Opcodes.GETSTATIC, SYSTEM_CLASS_NAME, "err", "Ljava/io/PrintStream;");
     mv.visitInsn(Opcodes.SWAP);
     PRINTLNINT_M.invokeMethod(mv, PRINTSTREAM_CLASS_NAME);
-  }
-
-  /**
-   * Create a fresh name for a regular expression class.
-   *
-   * @return fresh class name
-   */
-  public static final String freshName() {
-    return COMPILED_NAME_BASE + COMPILED_SUFFIX.getAndIncrement();
   }
 
   /**
@@ -456,7 +444,7 @@ public final class CompiledDfaCodegen {
     }
 
     // Initialize the `groups` array to the right length, filled with `-1`
-    final int groupsArrLen = (groupCount + 1) * 2;
+    final int groupsArrLen = groupCount * 2;
     mv.visitIntInsn(Opcodes.SIPUSH, (short) groupsArrLen); // TODO: overflow!?
     mv.visitIntInsn(Opcodes.NEWARRAY, Opcodes.T_INT);
     mv.visitInsn(Opcodes.DUP);
