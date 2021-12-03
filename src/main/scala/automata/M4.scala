@@ -89,7 +89,7 @@ final case class M4(
     var pos = m3Path.length - 1
     var strOffset = 0
     val captureGroups = Array.fill(groupCount * 2)(-1)
-    if (printDebugInfo) System.err.println(s"[M4] starting run on: $m3Path") 
+    if (printDebugInfo) System.err.println(s"[M4] starting run on: $m3Path")
 
     while (pos >= 0) {
       val step = m3Path(pos)
@@ -178,7 +178,7 @@ object M4 {
     // Given outgoing transitions in M2, determine outgoing transitions in M4
     def mapTransition(nextStates: Map[Int, List[M2.PathMarker]]): Map[Set[Int], M4.Transition] = {
       val output = mutable.Map.empty[Set[Int], (Int, List[M2.PathMarker])]
-      
+
       // We iterate through the current edges - M4 is just M2 with edges "filtered"
       for ((toState, viaPath) <- nextStates) {
         for (m3State <- stateToPowerState.getOrElse(toState, Set.empty)) {
@@ -187,7 +187,7 @@ object M4 {
               // If the existing path is "greater", keep that path
 
             case _ =>
-              output.addOne(m3State, (toState, viaPath))
+              output.addOne(m3State -> (toState -> viaPath))
           }
         }
       }

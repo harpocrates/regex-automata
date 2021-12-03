@@ -19,6 +19,7 @@ import org.objectweb.asm.Type;
  *   - move to a `compiler` package
  *   - put all the M1, M2, M3, M4 stuff in that package
  *   - add utilities for generating `.class` files (eg. `Files.write(Paths.get(className), classBytes)`)
+ *   - optimize the case where there are no groups to skip M4
  */
 public final class CompiledDfaCodegen {
 
@@ -516,7 +517,7 @@ public final class CompiledDfaCodegen {
         } else {
           // Lookup (or create if missing) the group and add the Q3 transition to it
           final var groupLabel = groupedMarkerTransitions.computeIfAbsent(
-            new SimpleEntry(q4Target, markersList),
+            new SimpleEntry<>(q4Target, markersList),
             (k) -> new Label()
           );
 

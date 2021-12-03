@@ -1,7 +1,5 @@
 package automata
 
-import scala.collection.mutable
-
 // Follow https://www.labs.hpe.com/techreports/2012/HPL-2012-41R1.pdf
 
 

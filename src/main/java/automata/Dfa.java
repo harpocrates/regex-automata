@@ -105,7 +105,7 @@ public interface Dfa<Q, E, T> {
     while (input.hasNext()) {
       final E e = input.next();
       final Transition<Q, T> transition = dfa.transitions(currentState).get(e);
-      
+
       // No transition found
       if (transition == null) {
         onMissingJump.accept(e);

@@ -92,14 +92,14 @@ object M2 {
         case _: M1.Character => ()
         case M1.PlusMinus(plus, minus) =>
           reachableFrom(from)
-            .addOne(plus, Plus)
-            .addOne(minus, Minus)
+            .addOne(plus -> Plus)
+            .addOne(minus -> Minus)
         case M1.GroupStart(groupIdx, to) =>
           reachableFrom(from)
-            .addOne(to, GroupMarker(true, groupIdx))
+            .addOne(to -> GroupMarker(true, groupIdx))
         case M1.GroupEnd(groupIdx, to) =>
           reachableFrom(from)
-            .addOne(to, GroupMarker(false, groupIdx))
+            .addOne(to -> GroupMarker(false, groupIdx))
       }
     }
     for (k <- reachableFrom.keys; i <- reachableFrom.keys; j <- reachableFrom.keys) {
@@ -109,10 +109,10 @@ object M2 {
       val reachIjThroughK: Option[EmptyTransition] = reachKj.flatMap(_ => reachIk)
       (reachIj, reachIjThroughK) match {
         // `i` -> `j` was not previously known to be possible
-        case (None, Some(t)) => reachableFrom(i).addOne(j, t)
+        case (None, Some(t)) => reachableFrom(i).addOne(j -> t)
 
         // `i` -> `j` is now possible through a `Plus`
-        case (_, Some(Plus)) => reachableFrom(i).addOne(j, Plus)
+        case (_, Some(Plus)) => reachableFrom(i).addOne(j -> Plus)
 
         // `i` -> `j` is not going to be improved
         case _ =>
