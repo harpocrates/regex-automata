@@ -57,10 +57,50 @@ interface RegexVisitor<I, O> {
   O visitPlus(I lhs, boolean isLazy);
 
   /**
+   * Matches a pattern at least a certain number of times and possible at most
+   * another number of times.
+   *
+   * @param lhs pattern to match
+   * @param atLeast minimum (inclusive) of times the pattern must match
+   * @param atMost maximum (inclusive) of time the pattern must match
+   * @param isLazy whether to prioritize a shorter vs. longer match
+   */
+  O visitRepetition(I lhs, int atLeast, OptionalInt atMost, boolean isLazy);
+
+  /**
    * Matches a parenthesized pattern.
    *
    * @param arg parenthesized body
    * @param groupIndex if set, the group is capturing and this is the capture index
    */
   O visitGroup(I arg, OptionalInt groupIndex);
+
+  /**
+   * Matches a (zero-width) boundary pattern
+   *
+   * @param boundary which boundary to match
+   */
+  O visitBoundary(Boundary boundary);
+
+  /**
+   * Zero-width boundary matchers.
+   *
+   * TODO: support more of these
+   */
+  enum Boundary {
+    /**
+     * Beginning of input
+     */
+    BEGINNING,
+
+    /**
+     * End of input
+     */
+    END,
+
+    /**
+     * Word boundary
+     */
+    WORD_BOUNDARY
+  }
 }

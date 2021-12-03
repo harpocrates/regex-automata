@@ -83,12 +83,15 @@ final class RegexParser<A> {
     return (concatLhs == null) ? visitor.visitEpsilon() : concatLhs;
   }
 
-
   /**
    * Parse a quantified repetition from a non-empty input
    */
   private A parseQuantified() throws ParseException {
     A quantified = parseGroup();
+
+    // Used for repetitions
+    int atLeast = 0;
+    OptionalInt atMost = OptionalInt.empty();
 
     postfix_parsing:
     while (position < length) {
@@ -103,7 +106,23 @@ final class RegexParser<A> {
           break;
 
         case '{':
-          throw new ParseException("Repetition ranges are not yet supported", position);
+          // Parse `atLeast`
+          atLeast = parseDecimalInteger();
+
+          // Parse `atMost`
+          if (position < length && input.charAt(position) == ',') {
+            position++;
+            if (position < length && input.charAt(position) != '}') {
+              atMost = OptionalInt.of(parseDecimalInteger());
+            }
+          }
+
+          // Close repetition
+          if (position >= length || input.charAt(position) != '}') {
+            throw new ParseException("Expected `}` to close repetition", position);
+          }
+          position++;
+          break;
 
         default:
           break postfix_parsing;
@@ -139,6 +158,9 @@ final class RegexParser<A> {
         case '+':
           quantified = visitor.visitPlus(quantified, isLazy);
           break;
+        case '{':
+          quantified = visitor.visitRepetition(quantified, atLeast, atMost, isLazy);
+          break;
       }
     }
 
@@ -169,7 +191,7 @@ final class RegexParser<A> {
           capture = false;
         } else {
           throw new ParseException(
-            "Only non-capturing groups are supported (lookaheads and lookbehinds aren't",
+            "Only non-capturing groups are supported (lookaheads and lookbehinds aren't)",
             position
           );
         }
@@ -200,8 +222,12 @@ final class RegexParser<A> {
     char c = input.charAt(position);
     switch (c) {
       case '^':
+        position++;
+        return visitor.visitBoundary(RegexVisitor.Boundary.BEGINNING);
+
       case '$':
-        throw new ParseException("Boundary qualifiers are not yet supported", position);
+        position++;
+        return visitor.visitBoundary(RegexVisitor.Boundary.END);
 
       case '.':
         throw new ParseException("Wilcard character is not yet supported", position);
@@ -211,7 +237,7 @@ final class RegexParser<A> {
 
       case '\\':
         position++;
-        if (position < length) {
+        if (position >= length) {
           throw new ParseException("Pattern may not end with backslash", position);
         }
 
@@ -272,43 +298,92 @@ final class RegexParser<A> {
             position++;
             return visitor.visitCharacter('\u000b');
 
-          // Hexadecimal escape
+          // Hexadecimal escape `\xhh` or `\x{h...h}`
           case 'x':
             position++;
-            if (position + 2 >= length) {
-              throw new ParseException(
-                "Expected 2 hexadecimal escape characters but got end of regex",
-                position
-               );
-            }
-            charCode = parseHexdecimalCharacter();
-            charCode = (charCode << 4) | parseHexdecimalCharacter();
-            return visitor.visitCharacter((char)charCode);
 
-          // Hexadecimal escape
+            if (position >= length) {
+              throw new ParseException("Hexadecimal or `{` but got end of regex", position);
+            } else if (input.charAt(position) == '{') {
+              position++;
+
+              // Loop over hex characters
+              charCode = 0;
+              while (position < length) {
+                if (input.charAt(position) == '}') {
+                  position++;
+
+                  // Is this one or two code points?
+                  if (Character.charCount(charCode) == 1) {
+                    return visitor.visitCharacter((char)charCode);
+                  } else {
+                    final var hi = visitor.visitCharacter(Character.highSurrogate(charCode));
+                    final var lo = visitor.visitCharacter(Character.lowSurrogate(charCode));
+                    return visitor.visitConcatenation(hi, lo);
+                  }
+                }
+
+                charCode = (charCode << 4) | parseHexadecimalCharacter();
+                if (charCode < Character.MIN_CODE_POINT || charCode > Character.MAX_CODE_POINT) {
+                  throw new ParseException(
+                    "Hexadecimal escape overflowed max code point",
+                    position
+                  );
+                }
+              }
+              throw new ParseException("Hexadecimal or `}` but got end of regex", position);
+            } else {
+              if (position + 2 > length) {
+                throw new ParseException(
+                  "Expected 2 hexadecimal escape characters but got end of regex",
+                  position
+                 );
+              }
+              charCode = parseHexadecimalCharacter();
+              charCode = (charCode << 4) | parseHexadecimalCharacter();
+              return visitor.visitCharacter((char)charCode);
+            }
+
+          // Hexadecimal escape `\\uhhhh`
           case 'u':
             position++;
-            if (position + 4 >= length) {
+            if (position + 4 > length) {
               throw new ParseException(
                 "Expected 4 hexadecimal escape characters but got end of regex",
                 position
                );
             }
-            charCode = parseHexdecimalCharacter();
-            charCode = (charCode << 4) | parseHexdecimalCharacter();
-            charCode = (charCode << 4) | parseHexdecimalCharacter();
-            charCode = (charCode << 4) | parseHexdecimalCharacter();
+            charCode = parseHexadecimalCharacter();
+            charCode = (charCode << 4) | parseHexadecimalCharacter();
+            charCode = (charCode << 4) | parseHexadecimalCharacter();
+            charCode = (charCode << 4) | parseHexadecimalCharacter();
             return visitor.visitCharacter((char)charCode);
 
+          // Back-references
+          case '1':
+          case '2':
+          case '3':
+          case '4':
+          case '5':
+          case '6':
+          case '7':
+          case '8':
+          case '9':
+          case 'k':
+            throw new ParseException("Backreferences are not supported", position);
+
           default:
-            throw new ParseException("Unsupported escape sequence", position);
+            throw new ParseException("Unknown escape sequence", position);
         }
 
       default:
-        if (Character.isHighSurrogate(c)) {
-          throw new ParseException("Characters outside of the BMP arent' supported", position);
-        } else {
+        position++;
+        if (Character.isHighSurrogate(c) && position < length) {
+          final var hi = visitor.visitCharacter(c);
+          final var lo = visitor.visitCharacter(input.charAt(position));
           position++;
+          return visitor.visitConcatenation(hi, lo);
+        } else {
           return visitor.visitCharacter(c);
         }
     }
@@ -317,7 +392,7 @@ final class RegexParser<A> {
   /**
    * Parse a hexadecimal character from a non-empty input
    */
-  private int parseHexdecimalCharacter() throws ParseException {
+  private int parseHexadecimalCharacter() throws ParseException {
     final int h = Character.digit(input.charAt(position++), 16);
     if (h < 0) {
       throw new ParseException("Expected a hexadecimal character", position);
@@ -325,4 +400,27 @@ final class RegexParser<A> {
       return h;
     }
   }
+
+  /**
+   * Parse a positive (possibly empty) decimal integer from the input
+   */
+  private int parseDecimalInteger() throws ParseException {
+    long integer = 0;
+    while (position < length) {
+      // Try to read another decimal character
+      final int d = Character.digit(input.charAt(position), 10);
+      if (d < 0) {
+        break;
+      }
+
+      // Increment the number
+      integer = 10 * integer + d;
+      if (integer > Integer.MAX_VALUE) {
+        throw new ParseException("Decimal integer overflowed", position);
+      }
+      position++;
+    }
+    return (int) integer;
+  }
+
 }

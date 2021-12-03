@@ -1,5 +1,6 @@
 package automata
 
+import scala.jdk.OptionConverters._
 import java.util.OptionalInt;
 // Follow https://www.labs.hpe.com/techreports/2012/HPL-2012-41R1.pdf
 
@@ -24,8 +25,14 @@ object Re extends RegexVisitor[Re, Re] {
   /** Match the same pattern as many/few times as possible, but at least once */
   final case class Plus(lhs: Re, isLazy: Boolean) extends Re
 
+  /** Match the same pattern a fixed range of times */
+  final case class Repetition(lhs: Re, atLeast: Int, atMost: Option[Int], isLazy: Boolean) extends Re
+
   /** Group sub-capture */
   final case class Group(arg: Re, idx: Int) extends Re
+
+  /** Zero-width boundary */
+  final case class Boundary(boundary: RegexVisitor.Boundary) extends Re
 
   def transform[O](visitor: RegexVisitor[Re, O], re: Re): O =
     re match {
@@ -37,7 +44,9 @@ object Re extends RegexVisitor[Re, Re] {
       case Union(lhs, rhs) => visitor.visitAlternation(lhs, rhs)
       case Kleene(lhs, isLazy) => visitor.visitKleene(lhs, isLazy)
       case Plus(lhs, isLazy) => visitor.visitPlus(lhs, isLazy)
+      case Repetition(lhs, n, m, isLazy) => visitor.visitRepetition(lhs, n, m.toJavaPrimitive, isLazy)
       case Group(arg, idx) => visitor.visitGroup(arg, OptionalInt.of(idx))
+      case Boundary(b) => visitor.visitBoundary(b)
     }
 
   override def visitEpsilon() =
@@ -61,8 +70,14 @@ object Re extends RegexVisitor[Re, Re] {
   override def visitPlus(lhs: Re, isLazy: Boolean) =
     Plus(lhs, isLazy)
 
+  override def visitRepetition(lhs: Re, atLeast: Int, atMost: OptionalInt, isLazy: Boolean) =
+    Repetition(lhs, atLeast, atMost.toScala, isLazy)
+
   override def visitGroup(arg: Re, groupIndex: OptionalInt) =
     if (groupIndex.isPresent()) Group(arg, groupIndex.getAsInt()) else arg
+
+  override def visitBoundary(boundary: RegexVisitor.Boundary) =
+    Boundary(boundary)
 
   def parse(src: String): Re = RegexParser.parse(Re, src)
 }

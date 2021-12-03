@@ -149,6 +149,8 @@ object M1 {
           states += argTo -> M1.GroupEnd(groupIdx, to)
           states += from -> M1.GroupStart(groupIdx, argFrom)
           from
+
+        case _ => ???
       }
 
     val terminal = freshState()

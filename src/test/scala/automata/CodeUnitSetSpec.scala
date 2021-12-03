@@ -1,68 +1,67 @@
 package automata
 
-import java.util.regex.MatchResult
 import org.scalatest.funspec.AnyFunSpec
 
 class CodeUnitSetSpec extends AnyFunSpec {
 
   val interval0 = CodeUnitSet.FULL
   val interval1 = CodeUnitSet.EMPTY
-  val interval2 = CodeUnitSet.of(CodeUnitRange.between(213, 876))
-  val interval3 = CodeUnitSet.of(CodeUnitRange.between(CodeUnitRange.MIN_BOUND, 876))
-  val interval4 = CodeUnitSet.of(CodeUnitRange.between(213, CodeUnitRange.MAX_BOUND))
+  val interval2 = CodeUnitSet.of(CodeUnitRange.between('\u0213', '\u0876'))
+  val interval3 = CodeUnitSet.of(CodeUnitRange.between(Character.MIN_VALUE, '\u0876'))
+  val interval4 = CodeUnitSet.of(CodeUnitRange.between('\u0213', Character.MAX_VALUE))
 
   describe("CodeUnitSet.contains") {
     it("CodeUnitSet.FULL should contain any element") {
-      assert(CodeUnitSet.FULL.contains(CodeUnitRange.MIN_BOUND))
-      assert(CodeUnitSet.FULL.contains(CodeUnitRange.MAX_BOUND))
-      assert(CodeUnitSet.FULL.contains(42))
-      assert(CodeUnitSet.FULL.contains(88))
-      assert(CodeUnitSet.FULL.contains(89))
-      assert(CodeUnitSet.FULL.contains(90))
-      assert(CodeUnitSet.FULL.contains(-765))
+      assert(CodeUnitSet.FULL.contains(Character.MIN_VALUE))
+      assert(CodeUnitSet.FULL.contains(Character.MAX_VALUE))
+      assert(CodeUnitSet.FULL.contains('\u0042'))
+      assert(CodeUnitSet.FULL.contains('\u0088'))
+      assert(CodeUnitSet.FULL.contains('\u0089'))
+      assert(CodeUnitSet.FULL.contains('\u0090'))
+      assert(CodeUnitSet.FULL.contains('\uf3ab'))
     }
 
     it("CodeUnitSet.EMPTY should contain no element") {
-      assert(!CodeUnitSet.EMPTY.contains(CodeUnitRange.MIN_BOUND))
-      assert(!CodeUnitSet.EMPTY.contains(CodeUnitRange.MAX_BOUND))
-      assert(!CodeUnitSet.EMPTY.contains(42))
-      assert(!CodeUnitSet.EMPTY.contains(88))
-      assert(!CodeUnitSet.EMPTY.contains(89))
-      assert(!CodeUnitSet.EMPTY.contains(90))
-      assert(!CodeUnitSet.EMPTY.contains(-765))
+      assert(!CodeUnitSet.EMPTY.contains(Character.MIN_VALUE))
+      assert(!CodeUnitSet.EMPTY.contains(Character.MAX_VALUE))
+      assert(!CodeUnitSet.EMPTY.contains('\u0042'))
+      assert(!CodeUnitSet.EMPTY.contains('\u0088'))
+      assert(!CodeUnitSet.EMPTY.contains('\u0089'))
+      assert(!CodeUnitSet.EMPTY.contains('\u0090'))
+      assert(!CodeUnitSet.EMPTY.contains('\uf3ab'))
     }
 
     it("CodeUnitSet.between(0-89) should contain some elements") {
-      val s = CodeUnitSet.of(CodeUnitRange.between(CodeUnitRange.MIN_BOUND, 89))
-      assert(s.contains(CodeUnitRange.MIN_BOUND))
-      assert(!s.contains(CodeUnitRange.MAX_BOUND))
-      assert(s.contains(42))
-      assert(s.contains(88))
-      assert(s.contains(89))
-      assert(!s.contains(90))
-      assert(!s.contains(-765))
+      val s = CodeUnitSet.of(CodeUnitRange.between(Character.MIN_VALUE, '\u0089'))
+      assert(s.contains(Character.MIN_VALUE))
+      assert(!s.contains(Character.MAX_VALUE))
+      assert(s.contains('\u0042'))
+      assert(s.contains('\u0088'))
+      assert(s.contains('\u0089'))
+      assert(!s.contains('\u0090'))
+      assert(!s.contains('\uf3ab'))
     }
 
     it("CodeUnitSet.of(89-65535) should contain some elements") {
-      val s = CodeUnitSet.of(CodeUnitRange.between(89, CodeUnitRange.MAX_BOUND))
-      assert(!s.contains(CodeUnitRange.MIN_BOUND))
-      assert(s.contains(CodeUnitRange.MAX_BOUND))
-      assert(!s.contains(42))
-      assert(!s.contains(88))
-      assert(s.contains(89))
-      assert(s.contains(90))
-      assert(s.contains(-765))
+      val s = CodeUnitSet.of(CodeUnitRange.between('\u0089', Character.MAX_VALUE))
+      assert(!s.contains(Character.MIN_VALUE))
+      assert(s.contains(Character.MAX_VALUE))
+      assert(!s.contains('\u0042'))
+      assert(!s.contains('\u0088'))
+      assert(s.contains('\u0089'))
+      assert(s.contains('\u0090'))
+      assert(s.contains('\uf3ab'))
     }
 
     it("CodeUnitSet.between(89-65535) should contain some elements") {
-      val s = CodeUnitSet.of(CodeUnitRange.between(89, CodeUnitRange.MAX_BOUND))
-      assert(!s.contains(CodeUnitRange.MIN_BOUND))
-      assert(s.contains(CodeUnitRange.MAX_BOUND))
-      assert(!s.contains(42))
-      assert(!s.contains(88))
-      assert(s.contains(89))
-      assert(s.contains(90))
-      assert(s.contains(-765))
+      val s = CodeUnitSet.of(CodeUnitRange.between('\u0089', Character.MAX_VALUE))
+      assert(!s.contains(Character.MIN_VALUE))
+      assert(s.contains(Character.MAX_VALUE))
+      assert(!s.contains('\u0042'))
+      assert(!s.contains('\u0088'))
+      assert(s.contains('\u0089'))
+      assert(s.contains('\u0090'))
+      assert(s.contains('\uf3ab'))
     }
   }
 
@@ -84,9 +83,9 @@ class CodeUnitSetSpec extends AnyFunSpec {
     }
 
     it("should intersect sets with multiple intervals") {
-      val s1 = CodeUnitSet.of(CodeUnitRange.between(4, 12), CodeUnitRange.single(56))
-      val s2 = CodeUnitSet.of(CodeUnitRange.between(8, 78), CodeUnitRange.between(100, 107))
-      val s3 = CodeUnitSet.of(CodeUnitRange.between(8, 12), CodeUnitRange.single(56))
+      val s1 = CodeUnitSet.of(CodeUnitRange.between('\u0004', '\u0012'), CodeUnitRange.single('\u0056'))
+      val s2 = CodeUnitSet.of(CodeUnitRange.between('\u0008', '\u0078'), CodeUnitRange.between('\u0100', '\u0107'))
+      val s3 = CodeUnitSet.of(CodeUnitRange.between('\u0008', '\u0012'), CodeUnitRange.single('\u0056'))
       assert(s1.intersection(s2) == s3)
     }
   }
@@ -111,16 +110,16 @@ class CodeUnitSetSpec extends AnyFunSpec {
     }
 
     it("should union sets with multiple intervals") {
-      val s1 = CodeUnitSet.of(CodeUnitRange.between(4, 12), CodeUnitRange.single(56))
-      val s2 = CodeUnitSet.of(CodeUnitRange.between(8, 78), CodeUnitRange.between(100, 107))
-      val s3 = CodeUnitSet.of(CodeUnitRange.between(4, 78), CodeUnitRange.between(100, 107))
+      val s1 = CodeUnitSet.of(CodeUnitRange.between('\u0004', '\u0012'), CodeUnitRange.single('\u0056'))
+      val s2 = CodeUnitSet.of(CodeUnitRange.between('\u0008', '\u0078'), CodeUnitRange.between('\u0100', '\u0107'))
+      val s3 = CodeUnitSet.of(CodeUnitRange.between('\u0004', '\u0078'), CodeUnitRange.between('\u0100', '\u0107'))
       assert(s1.union(s2) == s3)
     }
 
     it("should combine contiguous sets in unions") {
-      val s1 = CodeUnitSet.of(CodeUnitRange.between(4, 12), CodeUnitRange.single(56))
-      val s2 = CodeUnitSet.of(CodeUnitRange.between(13, 55), CodeUnitRange.single(57))
-      val s3 = CodeUnitSet.of(CodeUnitRange.between(4, 57))
+      val s1 = CodeUnitSet.of(CodeUnitRange.between('\u0004', '\u0012'), CodeUnitRange.single('\u0056'))
+      val s2 = CodeUnitSet.of(CodeUnitRange.between('\u0013', '\u0055'), CodeUnitRange.single('\u0057'))
+      val s3 = CodeUnitSet.of(CodeUnitRange.between('\u0004', '\u0057'))
       assert(s1.union(s2) == s3)
     }
   }

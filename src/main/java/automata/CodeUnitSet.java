@@ -23,7 +23,7 @@ public record CodeUnitSet(
     // Check that the ranges really are sorted
     CodeUnitRange previousRange = null;
     for (CodeUnitRange range : ranges) {
-      if (!range.isStrictlyGreaterThan(previousRange)) {
+      if (previousRange != null && previousRange.upperBound() + 1 >= range.lowerBound()) {
         throw new IllegalArgumentException(
           "Code unit ranges are overlapping or not sorted: " + previousRange + " and " + range
         );
@@ -102,7 +102,7 @@ public record CodeUnitSet(
    * @param codeUnit 16-bit code unit
    * @return whether the code unit is in this range
    */
-  public boolean contains(short codeUnit) {
+  public boolean contains(char codeUnit) {
     int rangeIndex = Collections.binarySearch(
       ranges,
       CodeUnitRange.single(codeUnit),
@@ -233,8 +233,8 @@ public record CodeUnitSet(
     // List of output ranges
     final var outputRanges = new ArrayList<CodeUnitRange>();
     int openRanges = 0;
-    short activeLower = CodeUnitRange.MIN_BOUND;
-    short previousActiveUpper = CodeUnitRange.MIN_BOUND;
+    char activeLower = Character.MIN_VALUE;
+    char previousActiveUpper = Character.MIN_VALUE;
     boolean inActiveRange = pointInOutput.test(openRanges);
 
     while (!endpoints.isEmpty()) {
@@ -269,7 +269,7 @@ public record CodeUnitSet(
 
     // Close out a trailing active range
     if (inActiveRange) {
-      outputRanges.add(CodeUnitRange.between(activeLower, CodeUnitRange.MAX_BOUND));
+      outputRanges.add(CodeUnitRange.between(activeLower, Character.MAX_VALUE));
     }
 
     return new CodeUnitSet(outputRanges);
@@ -277,7 +277,7 @@ public record CodeUnitSet(
 
   private static final Comparator<CodeUnitRange> RANGE_BY_LOWER = new Comparator<>() {
     public int compare(CodeUnitRange r1, CodeUnitRange r2) {
-      return Short.compareUnsigned(r1.lowerBound(), r2.lowerBound());
+      return Character.compare(r1.lowerBound(), r2.lowerBound());
     }
   };
 
@@ -294,7 +294,7 @@ public record CodeUnitSet(
       .comparingInt((SimpleImmutableEntry<Boolean, ListIterator<CodeUnitRange>> e) -> {
         final CodeUnitRange head = e.getValue().next();
         e.getValue().previous(); // roll iterator back
-        return Short.toUnsignedInt(e.getKey() ? head.upperBound() : head.lowerBound());
+        return e.getKey() ? head.upperBound() : head.lowerBound();
       })
       .thenComparing(SimpleImmutableEntry::getKey);
 }

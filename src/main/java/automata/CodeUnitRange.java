@@ -10,14 +10,12 @@ package automata;
  * @param upperBound largest (unsigned) 16-bit code unit in the range
  */
 public record CodeUnitRange(
-  short lowerBound,
-  short upperBound
+  char lowerBound,
+  char upperBound
 ) implements Comparable<CodeUnitRange> {
 
-  public static final short MIN_BOUND = 0;
-  public static final short MAX_BOUND = -1;
-
-  public static final CodeUnitRange FULL = CodeUnitRange.between(MIN_BOUND, MAX_BOUND);
+  public static final CodeUnitRange FULL =
+    CodeUnitRange.between(Character.MIN_VALUE, Character.MAX_VALUE);
 
   /**
    * Make a range (equivalent to the constructor, but more informatively named)
@@ -25,7 +23,7 @@ public record CodeUnitRange(
    * @param lowerBound smallest 16-bit code unit in the range
    * @param upperBound largest 16-bit code unit in the range
    */
-  public static CodeUnitRange between(short lowerBound, short upperBound) {
+  public static CodeUnitRange between(char lowerBound, char upperBound) {
     return new CodeUnitRange(lowerBound, upperBound);
   }
 
@@ -34,14 +32,14 @@ public record CodeUnitRange(
    *
    * @param singleUnit 16-bit code unit in the range
    */
-  public static CodeUnitRange single(short singleUnit) {
+  public static CodeUnitRange single(char singleUnit) {
     return new CodeUnitRange(singleUnit, singleUnit);
   }
 
   public CodeUnitRange {
-    if (Short.compareUnsigned(upperBound, lowerBound) < 0) {
+    if (lowerBound > upperBound) {
       throw new IllegalArgumentException(
-        "Code unit range lower bound " + lowerBound + " exceeds upper bound " + upperBound
+        "Code unit range lower bound " + (int)lowerBound + " exceeds upper bound " + (int)upperBound
       );
     }
   }
@@ -52,8 +50,8 @@ public record CodeUnitRange(
   }
 
   public String compactString() {
-    final int lo = Short.toUnsignedInt(lowerBound);
-    final int hi = Short.toUnsignedInt(upperBound);
+    final int lo = (int)lowerBound;
+    final int hi = (int)upperBound;
     return (lo == hi) ? "" + lo : "" + lo + "-" + hi;
   }
 
@@ -63,15 +61,14 @@ public record CodeUnitRange(
    * @param codeUnit 16-bit code unit
    * @return whether the code unit is in this range
    */
-  public boolean contains(short codeUnit) {
-    return Short.compareUnsigned(lowerBound, codeUnit) <= 0 &&
-      Short.compareUnsigned(upperBound, codeUnit) >= 0;
+  public boolean contains(char codeUnit) {
+    return lowerBound <= codeUnit && codeUnit <= upperBound;
   }
 
   @Override
   public int compareTo(CodeUnitRange other) {
-    int lowCompare = Short.compareUnsigned(lowerBound, other.lowerBound);
-    return lowCompare != 0 ? lowCompare : Short.compareUnsigned(upperBound, other.upperBound);
+    int lowCompare = Character.compare(lowerBound, other.lowerBound);
+    return lowCompare != 0 ? lowCompare : Character.compare(upperBound, other.upperBound);
   }
 
   /**
@@ -86,11 +83,9 @@ public record CodeUnitRange(
     if (other == null) {
       return this;
     } else if (overlapsWith(other)) {
-      boolean thisLowerBigger = Short.compareUnsigned(lowerBound, other.lowerBound) > 0;
-      boolean thisUpperBigger = Short.compareUnsigned(upperBound, other.upperBound) > 0;
       return new CodeUnitRange(
-        thisLowerBigger ? other.lowerBound : lowerBound,
-        thisUpperBigger ? upperBound : other.upperBound
+        lowerBound > other.lowerBound ? other.lowerBound : lowerBound,
+        upperBound > other.upperBound ? upperBound : other.upperBound
       );
     } else {
       return null;
@@ -107,11 +102,9 @@ public record CodeUnitRange(
    */
   public CodeUnitRange intersect(CodeUnitRange other) {
     if (overlapsWith(other)) {
-      boolean thisLowerBigger = Short.compareUnsigned(lowerBound, other.lowerBound) > 0;
-      boolean thisUpperBigger = Short.compareUnsigned(upperBound, other.upperBound) > 0;
       return new CodeUnitRange(
-        thisLowerBigger ? lowerBound : other.lowerBound,
-        thisUpperBigger ? other.upperBound : upperBound
+        lowerBound < other.lowerBound ? lowerBound : other.lowerBound,
+        upperBound < other.upperBound ? other.upperBound : upperBound
       );
     } else {
       return null;
@@ -125,21 +118,6 @@ public record CodeUnitRange(
    * @return whether the ranges overlap
    */
   public boolean overlapsWith(CodeUnitRange other) {
-    return other != null &&
-      Short.compareUnsigned(upperBound, other.lowerBound) >= 0 &&
-      Short.compareUnsigned(other.upperBound, lowerBound) >= 0;
-  }
-
-  /**
-   * Is this range of values strictly greater than the other range of values.
-   *
-   * More rigourously: there exists no value which is in this range which is
-   * smaller than or equal to a value in the other range.
-   *
-   * @param other other range
-   * @return whether this range is strictly less than the other range
-   */
-  public boolean isStrictlyGreaterThan(CodeUnitRange other) {
-    return other == null || Short.compareUnsigned(other.upperBound, lowerBound) < 0;
+    return other != null && lowerBound <= other.upperBound && other.lowerBound <= upperBound;
   }
 }
