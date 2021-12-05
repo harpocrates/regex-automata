@@ -12,13 +12,13 @@ import java.util.OptionalInt;
  *
  * TODO: document supported syntax
  */
-final class RegexParser<A> {
+public final class RegexParser<A, C> {
 
   // Used when "visiting" the AST bottom up
-  final private RegexVisitor<A, A> visitor;
+  final private RegexVisitor<A, C> visitor;
 
   // Book-keeping around position in source
-  private final CharSequence input;
+  private final String input;
   private final int length;
   private int position = 0;
   private int groupCount = 0;
@@ -33,25 +33,25 @@ final class RegexParser<A> {
    * @param input regular expression pattern
    * @return parsed regular expression
    */
-  public static<B> B parse(RegexVisitor<B, B> visitor, CharSequence input) throws ParseException {
-    final var parser = new RegexParser<B>(visitor, input);
-    final B parsed = parser.parseUnion();
+  public static<B, D> B parse(RegexVisitor<B, D> visitor, String input) throws ParseException {
+    final var parser = new RegexParser<B, D>(visitor, input);
+    final B parsed = parser.parseAlternation();
     if (parser.position < parser.length) {
       throw new ParseException("Expected the end of the regular expression", parser.position);
     }
     return parsed;
   }
 
-  private RegexParser(RegexVisitor<A, A> visitor, CharSequence input) {
+  private RegexParser(RegexVisitor<A, C> visitor, String input) {
     this.visitor = visitor;
     this.input = input;
     this.length = input.length();
   }
 
   /**
-   * Parse a union from the front of the string
+   * Parse an alternation.
    */
-  private A parseUnion() throws ParseException {
+  private A parseAlternation() throws ParseException {
     A unionLhs = parseConcatenation();
     while (position < length && input.charAt(position) == '|') {
       position++;
@@ -62,7 +62,7 @@ final class RegexParser<A> {
   }
 
   /**
-   * Parse a concatenation from the front of the string
+   * Parse a concatenation.
    */
   private A parseConcatenation() throws ParseException {
     // Left is `null` until we need it so as to avoid unnecessary `visitEpsilon`
@@ -84,7 +84,9 @@ final class RegexParser<A> {
   }
 
   /**
-   * Parse a quantified repetition from a non-empty input
+   * Parse a quantified repetition.
+   *
+   * Called on non-empty input.
    */
   private A parseQuantified() throws ParseException {
     A quantified = parseGroup();
@@ -106,6 +108,7 @@ final class RegexParser<A> {
           break;
 
         case '{':
+          position++;
           // Parse `atLeast`
           atLeast = parseDecimalInteger();
 
@@ -115,6 +118,8 @@ final class RegexParser<A> {
             if (position < length && input.charAt(position) != '}') {
               atMost = OptionalInt.of(parseDecimalInteger());
             }
+          } else {
+            atMost = OptionalInt.of(atLeast);
           }
 
           // Close repetition
@@ -168,11 +173,25 @@ final class RegexParser<A> {
   }
 
   /**
-   * Parse a group from a non-empty input
+   * Parse a group.
+   *
+   * Called on non-empty input.
    */
   private A parseGroup() throws ParseException {
-    if (input.charAt(position) != '(') {
-      return parseCharacter();
+    switch (input.charAt(position)) {
+      case '(':
+        break;
+
+      case '^':
+        position++;
+        return visitor.visitBoundary(RegexVisitor.Boundary.BEGINNING);
+
+      case '$':
+        position++;
+        return visitor.visitBoundary(RegexVisitor.Boundary.END);
+
+      default:
+        return visitor.visitCharacterClass(parseCharacterClass());
     }
 
     // Track the open paren so we can use it in the error message
@@ -202,7 +221,7 @@ final class RegexParser<A> {
     final var groupIdx = (capture) ? OptionalInt.of(groupCount++) : OptionalInt.empty();
 
     // Parse the group body and ensure that it is closed
-    final A union = parseUnion();
+    final A union = parseAlternation();
     if (!(position < length && input.charAt(position) == ')')) {
       throw new ParseException(
         "Unclosed group (expected close paren for group opened at " + openParenPosition,
@@ -216,177 +235,274 @@ final class RegexParser<A> {
   }
 
   /**
-   * Parse a character (or escaped character) from a non-empty input
+   * Parse a character or character class.
+   *
+   * Called on non-empty input.
    */
-  private A parseCharacter() throws ParseException {
-    char c = input.charAt(position);
-    switch (c) {
-      case '^':
-        position++;
-        return visitor.visitBoundary(RegexVisitor.Boundary.BEGINNING);
-
-      case '$':
-        position++;
-        return visitor.visitBoundary(RegexVisitor.Boundary.END);
-
+  private C parseCharacterClass() throws ParseException {
+    switch (input.charAt(position)) {
       case '.':
         throw new ParseException("Wilcard character is not yet supported", position);
 
       case '[':
-        throw new ParseException("Character classes are not yet supported", position);
-
-      case '\\':
+        // Track the open paren so we can use it in the error message
+        final int openBracketPosition = position;
         position++;
+
+        // Is the class negated?
+        boolean negated = position < length && input.charAt(position) == '^';
+        if (negated) {
+          position++;
+        }
         if (position >= length) {
-          throw new ParseException("Pattern may not end with backslash", position);
+          throw new ParseException(
+            "Unclosed character class (expected close to bracket opened at " + openBracketPosition + ")",
+            position
+          );
         }
 
-        // Re-used in the switch
-        int charCode;
+        // Class body
+        final C union = parseClassUnion();
+        if (!(position < length && input.charAt(position) == ']')) {
+          throw new ParseException(
+            "Unclosed character class (expected close to bracket opened at " + openBracketPosition + ")",
+            position
+          );
+        }
+        position++;
+        return negated ? visitor.visitNegated(union) : union;
 
-        c = input.charAt(position);
-        switch (c) {
-          case '\\':
-          case '.':
-          case '+':
-          case '*':
-          case '?':
-          case '(':
-          case ')':
-          case '|':
-          case '[':
-          case ']':
-          case '{':
-          case '}':
-          case '^':
-          case '$':
+      default:
+        return visitor.visitCharacter(parseCharacter(false));
+    }
+  }
+
+  /**
+   * Parse the code point of an "abstract" character (or escaped character).
+   *
+   * Called on non-empty input.
+   *
+   * @param insideClass is the parsing already inside a backet character class
+   */
+  private int parseCharacter(boolean insideClass) throws ParseException {
+    int codePoint;
+    if (input.charAt(position) == '\\') {
+      position++;
+      if (position >= length) {
+        throw new ParseException("Pattern may not end with backslash", position);
+      }
+
+      final char c = input.charAt(position);
+      switch (c) {
+        case '\\':
+        case '.':
+        case '+':
+        case '*':
+        case '?':
+        case '(':
+        case ')':
+        case '|':
+        case '[':
+        case ']':
+        case '{':
+        case '}':
+        case '^':
+        case '$':
+          position++;
+          return c;
+
+        // Bell character
+        case 'a':
+          position++;
+          return '\u0007';
+
+        // Escape character
+        case 'e':
+          position++;
+          return '\u001B';
+
+        // Form-feed
+        case 'f':
+          position++;
+          return '\f';
+
+        // Tab
+        case 't':
+          position++;
+          return '\t';
+
+        // Newline
+        case 'n':
+          position++;
+          return '\n';
+
+        // Carriage return
+        case 'r':
+          position++;
+          return '\r';
+
+        // Vertical tab
+        case 'v':
+          position++;
+          return '\u000b';
+
+        // Hexadecimal escape `\xhh` or `\x{h...h}`
+        case 'x':
+          position++;
+
+          if (position >= length) {
+            throw new ParseException("Hexadecimal or `{` but got end of regex", position);
+          } else if (input.charAt(position) == '{') {
             position++;
-            return visitor.visitCharacter(c);
 
-          // Bell character
-          case 'a':
-            position++;
-            return visitor.visitCharacter('\u0007');
-
-          // Escape character
-          case 'e':
-            position++;
-            return visitor.visitCharacter('\u001B');
-
-          // Form-feed
-          case 'f':
-            position++;
-            return visitor.visitCharacter('\f');
-
-          // Tab
-          case 't':
-            position++;
-            return visitor.visitCharacter('\t');
-
-          // Newline
-          case 'n':
-            position++;
-            return visitor.visitCharacter('\n');
-
-          // Carriage return
-          case 'r':
-            position++;
-            return visitor.visitCharacter('\r');
-
-          // Vertical tab
-          case 'v':
-            position++;
-            return visitor.visitCharacter('\u000b');
-
-          // Hexadecimal escape `\xhh` or `\x{h...h}`
-          case 'x':
-            position++;
-
-            if (position >= length) {
-              throw new ParseException("Hexadecimal or `{` but got end of regex", position);
-            } else if (input.charAt(position) == '{') {
-              position++;
-
-              // Loop over hex characters
-              charCode = 0;
-              while (position < length) {
-                if (input.charAt(position) == '}') {
-                  position++;
-
-                  // Is this one or two code points?
-                  if (Character.charCount(charCode) == 1) {
-                    return visitor.visitCharacter((char)charCode);
-                  } else {
-                    final var hi = visitor.visitCharacter(Character.highSurrogate(charCode));
-                    final var lo = visitor.visitCharacter(Character.lowSurrogate(charCode));
-                    return visitor.visitConcatenation(hi, lo);
-                  }
-                }
-
-                charCode = (charCode << 4) | parseHexadecimalCharacter();
-                if (charCode < Character.MIN_CODE_POINT || charCode > Character.MAX_CODE_POINT) {
-                  throw new ParseException(
-                    "Hexadecimal escape overflowed max code point",
-                    position
-                  );
-                }
+            // Loop over hex characters
+            codePoint = 0;
+            while (position < length) {
+              if (input.charAt(position) == '}') {
+                position++;
+                return codePoint;
               }
-              throw new ParseException("Hexadecimal or `}` but got end of regex", position);
-            } else {
-              if (position + 2 > length) {
+
+              codePoint = (codePoint << 4) | parseHexadecimalCharacter();
+              if (codePoint < Character.MIN_CODE_POINT || codePoint > Character.MAX_CODE_POINT) {
                 throw new ParseException(
-                  "Expected 2 hexadecimal escape characters but got end of regex",
+                  "Hexadecimal escape overflowed max code point",
                   position
-                 );
+                );
               }
-              charCode = parseHexadecimalCharacter();
-              charCode = (charCode << 4) | parseHexadecimalCharacter();
-              return visitor.visitCharacter((char)charCode);
             }
-
-          // Hexadecimal escape `\\uhhhh`
-          case 'u':
-            position++;
-            if (position + 4 > length) {
+            throw new ParseException("Hexadecimal or `}` but got end of regex", position);
+          } else {
+            if (position + 2 > length) {
               throw new ParseException(
-                "Expected 4 hexadecimal escape characters but got end of regex",
+                "Expected 2 hexadecimal escape characters but got end of regex",
                 position
                );
             }
-            charCode = parseHexadecimalCharacter();
-            charCode = (charCode << 4) | parseHexadecimalCharacter();
-            charCode = (charCode << 4) | parseHexadecimalCharacter();
-            charCode = (charCode << 4) | parseHexadecimalCharacter();
-            return visitor.visitCharacter((char)charCode);
+            codePoint = parseHexadecimalCharacter();
+            codePoint = (codePoint << 4) | parseHexadecimalCharacter();
+            return codePoint;
+          }
 
-          // Back-references
-          case '1':
-          case '2':
-          case '3':
-          case '4':
-          case '5':
-          case '6':
-          case '7':
-          case '8':
-          case '9':
-          case 'k':
-            throw new ParseException("Backreferences are not supported", position);
-
-          default:
-            throw new ParseException("Unknown escape sequence", position);
-        }
-
-      default:
-        position++;
-        if (Character.isHighSurrogate(c) && position < length) {
-          final var hi = visitor.visitCharacter(c);
-          final var lo = visitor.visitCharacter(input.charAt(position));
+        // Hexadecimal escape `\\uhhhh`
+        case 'u':
           position++;
-          return visitor.visitConcatenation(hi, lo);
-        } else {
-          return visitor.visitCharacter(c);
-        }
+          if (position + 4 > length) {
+            throw new ParseException(
+              "Expected 4 hexadecimal escape characters but got end of regex",
+              position
+             );
+          }
+          codePoint = parseHexadecimalCharacter();
+          codePoint = (codePoint << 4) | parseHexadecimalCharacter();
+          codePoint = (codePoint << 4) | parseHexadecimalCharacter();
+          codePoint = (codePoint << 4) | parseHexadecimalCharacter();
+          return codePoint;
+
+        // Back-references
+        case '1':
+        case '2':
+        case '3':
+        case '4':
+        case '5':
+        case '6':
+        case '7':
+        case '8':
+        case '9':
+        case 'k':
+          throw new ParseException("Backreferences are not supported", position);
+
+        default:
+          throw new ParseException("Unknown escape sequence", position);
+      }
+    } else {
+      codePoint = input.codePointAt(position);
+      position += Character.charCount(codePoint);
+      return codePoint;
     }
+  }
+
+  /**
+   * Parse a union inside a bracket-delimited class.
+   *
+   * Called on non-empty input.
+   */
+  private C parseClassUnion() throws ParseException {
+    C union = parseClassIntersection();
+
+    // Keep parsing unions until a lower priority construct is encountered
+    union_loop: while (position < length) {
+      switch (input.charAt(position)) {
+        // Intersection
+        case '&':
+          if (position + 1 >= length || input.charAt(position + 1) == '&') {
+            break;
+          }
+          break union_loop;
+
+        // End of class
+        case ']':
+          break union_loop;
+      }
+      union = visitor.visitUnion(union, parseClassIntersection());
+    }
+
+    return union;
+  }
+
+  /**
+   * Parse an intersection inside a bracket-delimited class.
+   *
+   * Called on non-empty input.
+   */
+  private C parseClassIntersection() throws ParseException {
+    C intersection = parseCharacterRange();
+
+    while (position + 2 < length) {
+      if (input.charAt(position) != '&' || input.charAt(position + 1) != '&') {
+        break;
+      }
+      position += 2;
+      if (position >= length) {
+        throw new ParseException("Invalid class intersection, missing right hand side", position);
+      }
+      intersection = visitor.visitIntersection(intersection, parseCharacterRange());
+    }
+
+    return intersection;
+  }
+
+  /**
+   * Parse a character range inside a bracket-delimited class.
+   *
+   * Called on non-empty input.
+   */
+  private C parseCharacterRange() throws ParseException {
+    if (input.charAt(position) == '[') {
+      return parseCharacterClass();
+    }
+
+    final int ch = parseCharacter(true);
+    if (position + 1 < length && input.charAt(position) == '-') {
+      switch (input.charAt(position + 1)) {
+        case '[':
+          throw new ParseException("Invalid character range, missing right hand side", position);
+
+        // `-` is literal
+        case ']':
+          break;
+
+        // Check for intersection syntax
+        case '&':
+          if (position + 2 < length && input.charAt(position + 2) == '&') {
+            break;
+          }
+      }
+
+      position++;
+      return visitor.visitRange(ch, parseCharacter(true));
+    }
+    return visitor.visitCharacter(ch);
   }
 
   /**

@@ -1,20 +1,27 @@
 package automata;
 
 import java.util.OptionalInt;
+import java.util.function.Function;
 
-interface RegexVisitor<I, O> {
+/**
+ * Bottom-up traversal of the regular expression pattern AST.
+ *
+ * @param <R> output from traversing the regex pattern AST
+ * @param <C> output from traversing the character class AST
+ */
+public interface RegexVisitor<R, C> extends CharClassVisitor<C> {
 
   /**
-   * Matches nothing.
+   * Empty expression, matching only the empty string.
    */
-  O visitEpsilon();
+  R visitEpsilon();
 
   /**
-   * Matches one literal character.
+   * Matches any character inside the character class.
    *
-   * @param ch character to match
+   * @param charClassVisitor character class sub-AST
    */
-  O visitCharacter(char ch);
+  R visitCharacterClass(C characterClass);
 
   /**
    * Matches a concatenation of two patterns.
@@ -22,15 +29,19 @@ interface RegexVisitor<I, O> {
    * @param lhs first pattern to match
    * @param rhs second pattern to match
    */
-  O visitConcatenation(I lhs, I rhs);
+  R visitConcatenation(R lhs, R rhs);
 
   /**
    * Matches a union of two patterns.
    *
+   * This is not a symmetric operation; if both sides match but they have
+   * different capture-group effects, those of the left-hand side will be the
+   * ones taken in the match.
+   *
    * @param lhs first pattern to try matching
    * @param rhs second pattern to try matching
    */
-  O visitAlternation(I lhs, I rhs);
+  R visitAlternation(R lhs, R rhs);
 
   /**
    * Matches a pattern zero or more times.
@@ -38,15 +49,15 @@ interface RegexVisitor<I, O> {
    * @param lhs pattern to match
    * @param isLazy whether to prioritize a shorter vs. longer match
    */
-  O visitKleene(I lhs, boolean isLazy);
+  R visitKleene(R lhs, boolean isLazy);
 
   /**
    * Matches a pattern zero or one times.
    *
    * @param lhs pattern to match
-   * @param isLazy whether to prioritize an empty vs. nonempty match
+   * @param isLazy whether to prioritize an empty vs. non-empty match
    */
-  O visitOptional(I lhs, boolean isLazy);
+  R visitOptional(R lhs, boolean isLazy);
 
   /**
    * Matches a pattern one or more times.
@@ -54,10 +65,10 @@ interface RegexVisitor<I, O> {
    * @param lhs pattern to match
    * @param isLazy whether to prioritize a shorter vs. longer match
    */
-  O visitPlus(I lhs, boolean isLazy);
+  R visitPlus(R lhs, boolean isLazy);
 
   /**
-   * Matches a pattern at least a certain number of times and possible at most
+   * Matches a pattern at least a certain number of times and possibly at most
    * another number of times.
    *
    * @param lhs pattern to match
@@ -65,22 +76,22 @@ interface RegexVisitor<I, O> {
    * @param atMost maximum (inclusive) of time the pattern must match
    * @param isLazy whether to prioritize a shorter vs. longer match
    */
-  O visitRepetition(I lhs, int atLeast, OptionalInt atMost, boolean isLazy);
+  R visitRepetition(R lhs, int atLeast, OptionalInt atMost, boolean isLazy);
 
   /**
    * Matches a parenthesized pattern.
    *
    * @param arg parenthesized body
-   * @param groupIndex if set, the group is capturing and this is the capture index
+   * @param groupIndex if set, the group is capturing with this capture index
    */
-  O visitGroup(I arg, OptionalInt groupIndex);
+  R visitGroup(R arg, OptionalInt groupIndex);
 
   /**
    * Matches a (zero-width) boundary pattern
    *
    * @param boundary which boundary to match
    */
-  O visitBoundary(Boundary boundary);
+  R visitBoundary(Boundary boundary);
 
   /**
    * Zero-width boundary matchers.

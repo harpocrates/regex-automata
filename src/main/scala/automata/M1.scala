@@ -109,20 +109,32 @@ object M1 {
           to
 
         case Re.Character(c) =>
-          val from = freshState()
-          states += from -> M1.Character(c, to)
-          from
+          if (java.lang.Character.charCount(c) == 1) {
+            val from = freshState()
+            states += from -> M1.Character(c.asInstanceOf[Char], to)
+            from
+          } else {
+            val from = freshState()
+            val low = freshState()
+            states += from -> M1.Character(java.lang.Character.highSurrogate(c), low)
+            states += low -> M1.Character(java.lang.Character.lowSurrogate(c), to)
+            from
+          }
 
         case Re.Concat(lhs, rhs) =>
           val mid = convert(rhs, to)
           convert(lhs, mid)
 
-        case Re.Union(lhs, rhs) =>
+        case Re.Alternation(lhs, rhs) =>
           val lhsFrom = convert(lhs, to)
           val rhsFrom = convert(rhs, to)
           val from = freshState()
           states += from -> M1.PlusMinus(lhsFrom, rhsFrom)
           from
+
+        case Re.Optional(lhs, isLazy) =>
+          val (first, second) = if (isLazy) (Re.Epsilon, lhs) else (lhs, Re.Epsilon)
+          convert(Re.Alternation(first, second), to)
 
         case Re.Kleene(lhs, isLazy) =>
           val lhsTo = freshState()
