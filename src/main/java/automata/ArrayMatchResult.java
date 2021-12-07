@@ -1,5 +1,7 @@
 package automata;
 
+import java.util.Iterator;
+import java.util.stream.IntStream;
 import java.util.regex.MatchResult;
 
 public class ArrayMatchResult implements MatchResult {
@@ -48,6 +50,13 @@ public class ArrayMatchResult implements MatchResult {
   @Override
   public int groupCount() {
     return offsets.length >> 1;
+  }
+
+  public Iterator<String> groups() {
+    return IntStream
+      .range(0, groupCount())
+      .mapToObj(idx -> group(idx))
+      .iterator();
   }
 }
 

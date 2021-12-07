@@ -17,11 +17,14 @@ public final class RegexParser<A, C> {
   // Used when "visiting" the AST bottom up
   final private RegexVisitor<A, C> visitor;
 
-  // Book-keeping around position in source
+  // Bookeeping around position in source
   private final String input;
   private final int length;
   private int position = 0;
   private int groupCount = 0;
+
+  // Single possibly stashed codepoint - see `parseCharacter`
+  private int stashedCodePoint = 0;
 
   /**
    * Parse a regular expression pattern from an input string.
@@ -238,13 +241,47 @@ public final class RegexParser<A, C> {
    * Parse a character or character class.
    *
    * Called on non-empty input.
+   *
+   * @param insideClass is the parsing already inside a backet character class
    */
   private C parseCharacterClass() throws ParseException {
+    C cls = parseCharacterClassOrCodePoint(false, false);
+    if (cls == null) {
+      cls = visitor.visitCharacter(stashedCodePoint);
+    }
+    return cls;
+  }
+
+  /**
+   * Parse the code point of an "abstract" character, escaped character, or escaped character class.
+   *
+   * Called on non-empty input. If a code point is found instead of a character class, the code
+   * point will be stashed in `stashedCodePoint`.
+   *
+   * @param insideClass is the parsing already inside a backet character class
+   * @param closingClassRange is a non-null return an error?
+   * @return character class or `null` if just a code point was found
+   */
+  private C parseCharacterClassOrCodePoint(
+    boolean insideClass,
+    boolean closingClassRange
+  ) throws ParseException {
+    int codePoint;
     switch (input.charAt(position)) {
       case '.':
-        throw new ParseException("Wilcard character is not yet supported", position);
+        if (insideClass) {
+          position++;
+          return visitor.visitCharacter('.');
+        } else {
+          throw new ParseException("Wildcard character is not yet supported", position);
+        }
 
+      // Character class
       case '[':
+        if (closingClassRange) {
+          throw new ParseException("Cannot end class range with '[', position", position);
+        }
+
         // Track the open paren so we can use it in the error message
         final int openBracketPosition = position;
         position++;
@@ -272,153 +309,190 @@ public final class RegexParser<A, C> {
         position++;
         return negated ? visitor.visitNegated(union) : union;
 
-      default:
-        return visitor.visitCharacter(parseCharacter(false));
-    }
-  }
+      case '\\':
+        position++;
+        if (position >= length) {
+          throw new ParseException("Pattern may not end with backslash", position);
+        }
 
-  /**
-   * Parse the code point of an "abstract" character (or escaped character).
-   *
-   * Called on non-empty input.
-   *
-   * @param insideClass is the parsing already inside a backet character class
-   */
-  private int parseCharacter(boolean insideClass) throws ParseException {
-    int codePoint;
-    if (input.charAt(position) == '\\') {
-      position++;
-      if (position >= length) {
-        throw new ParseException("Pattern may not end with backslash", position);
-      }
+        final char c = input.charAt(position);
+        switch (c) {
+          case '\\':
+          case '.':
+          case '+':
+          case '*':
+          case '?':
+          case '(':
+          case ')':
+          case '|':
+          case '[':
+          case ']':
+          case '{':
+          case '}':
+          case '^':
+          case '$':
+            position++;
+            stashedCodePoint = c;
+            return null;
 
-      final char c = input.charAt(position);
-      switch (c) {
-        case '\\':
-        case '.':
-        case '+':
-        case '*':
-        case '?':
-        case '(':
-        case ')':
-        case '|':
-        case '[':
-        case ']':
-        case '{':
-        case '}':
-        case '^':
-        case '$':
-          position++;
-          return c;
+          // Character classes
+          case 'd':
+            if (closingClassRange) {
+              throw new ParseException("Cannot end class range with 'd', position", position);
+            }
+            position++;
+            return visitor.visitBuiltinClass(CharClassVisitor.BuiltinClass.DIGIT);
+          case 'D':
+            if (closingClassRange) {
+              throw new ParseException("Cannot end class range with 'D', position", position);
+            }
+            position++;
+            return visitor.visitBuiltinClass(CharClassVisitor.BuiltinClass.NON_DIGIT);
+          case 's':
+            if (closingClassRange) {
+              throw new ParseException("Cannot end class range with 's', position", position);
+            }
+            position++;
+            return visitor.visitBuiltinClass(CharClassVisitor.BuiltinClass.WHITE_SPACE);
+          case 'S':
+            if (closingClassRange) {
+              throw new ParseException("Cannot end class range with 'S', position", position);
+            }
+            position++;
+            return visitor.visitBuiltinClass(CharClassVisitor.BuiltinClass.NON_WHITE_SPACE);
+          case 'w':
+            if (closingClassRange) {
+              throw new ParseException("Cannot end class range with 'w', position", position);
+            }
+            position++;
+            return visitor.visitBuiltinClass(CharClassVisitor.BuiltinClass.WORD);
+          case 'W':
+            if (closingClassRange) {
+              throw new ParseException("Cannot end class range with 'W', position", position);
+            }
+            position++;
+            return visitor.visitBuiltinClass(CharClassVisitor.BuiltinClass.NON_WORD);
 
-        // Bell character
-        case 'a':
-          position++;
-          return '\u0007';
+          // Bell character
+          case 'a':
+            position++;
+            stashedCodePoint = '\u0007';
+            return null;
 
-        // Escape character
-        case 'e':
-          position++;
-          return '\u001B';
+          // Escape character
+          case 'e':
+            position++;
+            stashedCodePoint = '\u001B';
+            return null;
 
-        // Form-feed
-        case 'f':
-          position++;
-          return '\f';
+          // Form-feed
+          case 'f':
+            position++;
+            stashedCodePoint = '\f';
+            return null;
 
-        // Tab
-        case 't':
-          position++;
-          return '\t';
+          // Tab
+          case 't':
+            position++;
+            stashedCodePoint = '\t';
+            return null;
 
-        // Newline
-        case 'n':
-          position++;
-          return '\n';
+          // Newline
+          case 'n':
+            position++;
+            stashedCodePoint = '\n';
+            return null;
 
-        // Carriage return
-        case 'r':
-          position++;
-          return '\r';
+          // Carriage return
+          case 'r':
+            position++;
+            stashedCodePoint = '\r';
+            return null;
 
-        // Vertical tab
-        case 'v':
-          position++;
-          return '\u000b';
+          // Vertical tab
+          case 'v':
+            position++;
+            stashedCodePoint = '\u000b';
+            return null;
 
-        // Hexadecimal escape `\xhh` or `\x{h...h}`
-        case 'x':
-          position++;
-
-          if (position >= length) {
-            throw new ParseException("Hexadecimal or `{` but got end of regex", position);
-          } else if (input.charAt(position) == '{') {
+          // Hexadecimal escape `\xhh` or `\x{h...h}`
+          case 'x':
             position++;
 
-            // Loop over hex characters
-            codePoint = 0;
-            while (position < length) {
-              if (input.charAt(position) == '}') {
-                position++;
-                return codePoint;
-              }
+            if (position >= length) {
+              throw new ParseException("Hexadecimal or `{` but got end of regex", position);
+            } else if (input.charAt(position) == '{') {
+              position++;
 
-              codePoint = (codePoint << 4) | parseHexadecimalCharacter();
-              if (codePoint < Character.MIN_CODE_POINT || codePoint > Character.MAX_CODE_POINT) {
-                throw new ParseException(
-                  "Hexadecimal escape overflowed max code point",
-                  position
-                );
+              // Loop over hex characters
+              codePoint = 0;
+              while (position < length) {
+                if (input.charAt(position) == '}') {
+                  position++;
+                  stashedCodePoint = codePoint;
+                  return null;
+                }
+
+                codePoint = (codePoint << 4) | parseHexadecimalCharacter();
+                if (codePoint < Character.MIN_CODE_POINT || codePoint > Character.MAX_CODE_POINT) {
+                  throw new ParseException(
+                    "Hexadecimal escape overflowed max code point",
+                    position
+                  );
+                }
               }
+              throw new ParseException("Hexadecimal or `}` but got end of regex", position);
+            } else {
+              if (position + 2 > length) {
+                throw new ParseException(
+                  "Expected 2 hexadecimal escape characters but got end of regex",
+                  position
+                 );
+              }
+              codePoint = parseHexadecimalCharacter();
+              codePoint = (codePoint << 4) | parseHexadecimalCharacter();
+              stashedCodePoint = codePoint;
+              return null;
             }
-            throw new ParseException("Hexadecimal or `}` but got end of regex", position);
-          } else {
-            if (position + 2 > length) {
+
+          // Hexadecimal escape `\\uhhhh`
+          case 'u':
+            position++;
+            if (position + 4 > length) {
               throw new ParseException(
-                "Expected 2 hexadecimal escape characters but got end of regex",
+                "Expected 4 hexadecimal escape characters but got end of regex",
                 position
                );
             }
             codePoint = parseHexadecimalCharacter();
             codePoint = (codePoint << 4) | parseHexadecimalCharacter();
-            return codePoint;
-          }
+            codePoint = (codePoint << 4) | parseHexadecimalCharacter();
+            codePoint = (codePoint << 4) | parseHexadecimalCharacter();
+            stashedCodePoint = codePoint;
+            return null;
 
-        // Hexadecimal escape `\\uhhhh`
-        case 'u':
-          position++;
-          if (position + 4 > length) {
-            throw new ParseException(
-              "Expected 4 hexadecimal escape characters but got end of regex",
-              position
-             );
-          }
-          codePoint = parseHexadecimalCharacter();
-          codePoint = (codePoint << 4) | parseHexadecimalCharacter();
-          codePoint = (codePoint << 4) | parseHexadecimalCharacter();
-          codePoint = (codePoint << 4) | parseHexadecimalCharacter();
-          return codePoint;
+          // Back-references
+          case '1':
+          case '2':
+          case '3':
+          case '4':
+          case '5':
+          case '6':
+          case '7':
+          case '8':
+          case '9':
+          case 'k':
+            throw new ParseException("Backreferences are not supported", position);
 
-        // Back-references
-        case '1':
-        case '2':
-        case '3':
-        case '4':
-        case '5':
-        case '6':
-        case '7':
-        case '8':
-        case '9':
-        case 'k':
-          throw new ParseException("Backreferences are not supported", position);
+          default:
+            throw new ParseException("Unknown escape sequence: " + c, position);
+        }
 
-        default:
-          throw new ParseException("Unknown escape sequence", position);
-      }
-    } else {
-      codePoint = input.codePointAt(position);
-      position += Character.charCount(codePoint);
-      return codePoint;
+      default:
+        codePoint = input.codePointAt(position);
+        position += Character.charCount(codePoint);
+        stashedCodePoint = codePoint;
+        return null;
     }
   }
 
@@ -478,29 +552,38 @@ public final class RegexParser<A, C> {
    * Called on non-empty input.
    */
   private C parseCharacterRange() throws ParseException {
-    if (input.charAt(position) == '[') {
-      return parseCharacterClass();
+    final C cls = parseCharacterClassOrCodePoint(true, false);
+    if (cls != null) {
+      return cls;
     }
 
-    final int ch = parseCharacter(true);
+    final int ch = stashedCodePoint;
     if (position + 1 < length && input.charAt(position) == '-') {
+      boolean parseRange = true;
       switch (input.charAt(position + 1)) {
         case '[':
           throw new ParseException("Invalid character range, missing right hand side", position);
 
         // `-` is literal
         case ']':
+          parseRange = false;
           break;
 
         // Check for intersection syntax
         case '&':
-          if (position + 2 < length && input.charAt(position + 2) == '&') {
-            break;
-          }
+          parseRange = position + 2 >= length || input.charAt(position + 2) != '&';
+          break;
+
+        default:
+          parseRange = true;
+          break;
       }
 
-      position++;
-      return visitor.visitRange(ch, parseCharacter(true));
+      if (parseRange) {
+        position++;
+        parseCharacterClassOrCodePoint(true, true);
+        return visitor.visitRange(ch, stashedCodePoint);
+      }
     }
     return visitor.visitCharacter(ch);
   }

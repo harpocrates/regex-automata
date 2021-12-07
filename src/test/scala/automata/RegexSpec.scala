@@ -1,5 +1,6 @@
 package automata
 
+import scala.jdk.CollectionConverters._
 import java.util.regex.MatchResult
 import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.should.Matchers
@@ -183,5 +184,37 @@ class RegexSpec extends AnyFlatSpec with Matchers {
     assert(matched != null, "regex captureMatch-es")
 
     assert(matched.groupCount == 0, "regex has right number of captures")
+  }
+
+  val phoneRe = raw"(?:\+?(\d{1,3}))?[-. (]*(\d{3})[-. )]*(\d{3})[-. ]*(\d{4})(?: *x(\d+))?"
+  phoneRe should "match phone numbers in compiled mode" in {
+    val pattern = DfaPattern.compile(phoneRe)
+
+    val shouldMatch = List(
+      "18005551234" -> List("1", "800", "555", "1234", null),
+      "1 800 555 1234" -> List("1", "800", "555", "1234", null),
+      "+1 800 555-1234" -> List("1", "800", "555", "1234", null),
+      "+86 800 555 1234" -> List("86", "800", "555", "1234", null),
+      "1-800-555-1234" -> List("1", "800", "555", "1234", null),
+      "1 (800) 555-1234" -> List("1", "800", "555", "1234", null),
+      "(800)555-1234" -> List(null, "800", "555", "1234", null),
+      "(800) 555-1234" -> List(null, "800", "555", "1234", null),
+      "(800)5551234" -> List(null, "800", "555", "1234", null),
+      "800-555-1234" -> List(null, "800", "555", "1234", null),
+      "800.555.1234" -> List(null, "800", "555", "1234", null),
+      "800 555 1234x5678" -> List(null, "800", "555", "1234", "5678"),
+      "8005551234 x5678" -> List(null, "800", "555", "1234", "5678"),
+      "1    800    555-1234" -> List("1", "800", "555", "1234", null),
+      "1----800----555-1234" -> List("1", "800", "555", "1234", null)
+    )
+
+    for ((str, matchedGroups) <- shouldMatch) {
+      val matches: Boolean = pattern.checkMatch(str)
+      val matched: ArrayMatchResult = pattern.captureMatch(str)
+      assert(matches, "regex checkMatch-es")
+      assert(matched != null, "regex captureMatch-es")
+
+      assert(matchedGroups == matched.groups.asScala.toList, "groups match")
+    }
   }
 }

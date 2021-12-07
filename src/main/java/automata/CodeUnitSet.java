@@ -2,6 +2,7 @@ package automata;
 
 import java.util.*;
 import java.util.function.IntPredicate;
+import java.util.stream.StreamSupport;
 import static java.util.AbstractMap.SimpleImmutableEntry;
 
 /**
@@ -16,7 +17,7 @@ import static java.util.AbstractMap.SimpleImmutableEntry;
  */
 public record CodeUnitSet(
   List<CodeUnitRange> ranges
-) {
+) implements Iterable<Character> {
 
   public CodeUnitSet(List<CodeUnitRange> ranges) {
 
@@ -76,6 +77,14 @@ public record CodeUnitSet(
     }
     builder.append(')');
     return builder.toString();
+  }
+
+  @Override
+  public Iterator<Character> iterator() {
+    return StreamSupport
+      .stream(ranges.spliterator(), false)
+      .flatMap(range -> StreamSupport.stream(range.spliterator(), false))
+      .iterator();
   }
 
   /**

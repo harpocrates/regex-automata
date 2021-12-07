@@ -1,7 +1,7 @@
 package automata
 
 // Follow https://www.labs.hpe.com/techreports/2012/HPL-2012-41R1.pdf
-
+import scala.jdk.CollectionConverters._
 
 /** NFA corresponding to regex
   *
@@ -99,6 +99,26 @@ object M1 {
 
     val states = Map.newBuilder[Int, M1.Transition]
 
+    val charClassVisitor = new CharClassVisitor[CodeUnitSet] {
+      def visitCharacter(cp: Int) =
+        CodeUnitSet.of(CodeUnitRange.single(cp.asInstanceOf[Char]))
+
+      def visitRange(from: Int, to: Int) =
+        CodeUnitSet.of(CodeUnitRange.between(from.asInstanceOf[Char], to.asInstanceOf[Char]))
+
+      def visitNegated(n: CodeUnitSet) =
+        n.complement()
+
+      def visitUnion(lhs: CodeUnitSet, rhs: CodeUnitSet) =
+        lhs.union(rhs)
+
+      def visitIntersection(lhs: CodeUnitSet, rhs: CodeUnitSet) =
+        lhs.intersection(rhs)
+
+      def visitBuiltinClass(cls: CharClassVisitor.BuiltinClass) =
+        cls.desugar(this)
+    }
+
     /** @param re regex
       * @param to state at which to end
       * @return state at which the regex starts
@@ -108,18 +128,35 @@ object M1 {
         case Re.Epsilon =>
           to
 
-        case Re.Character(c) =>
-          if (java.lang.Character.charCount(c) == 1) {
-            val from = freshState()
-            states += from -> M1.Character(c.asInstanceOf[Char], to)
-            from
-          } else {
-            val from = freshState()
-            val low = freshState()
-            states += from -> M1.Character(java.lang.Character.highSurrogate(c), low)
-            states += low -> M1.Character(java.lang.Character.lowSurrogate(c), to)
-            from
+        case c: CharClass =>
+          val set = c.acceptCharClass(charClassVisitor)
+          val from = freshState()
+          set.asScala.toList match {
+            case Nil => ()
+            case ch :: chs =>
+              states += from -> chs.foldLeft[Transition](M1.Character(ch, to)) {
+                (acc: Transition, c: java.lang.Character) =>
+                  val accFrom = freshState()
+                  val cFrom = freshState()
+                  states += accFrom -> acc
+                  states += cFrom -> M1.Character(c.charValue, to)
+                  M1.PlusMinus(accFrom, cFrom)
+              }
           }
+          from
+
+     //   case Re.Character(c) =>
+     //     if (java.lang.Character.charCount(c) == 1) {
+     //       val from = freshState()
+     //       states += from -> M1.Character(c.asInstanceOf[Char], to)
+     //       from
+     //     } else {
+     //       val from = freshState()
+     //       val low = freshState()
+     //       states += from -> M1.Character(java.lang.Character.highSurrogate(c), low)
+     //       states += low -> M1.Character(java.lang.Character.lowSurrogate(c), to)
+     //       from
+     //     }
 
         case Re.Concat(lhs, rhs) =>
           val mid = convert(rhs, to)
@@ -161,6 +198,33 @@ object M1 {
           states += argTo -> M1.GroupEnd(groupIdx, to)
           states += from -> M1.GroupStart(groupIdx, argFrom)
           from
+
+        case Re.Repetition(arg, atLeast, atMost, isLazy) =>
+          // `atMost` part - this is either a kleene star or a fixed repetition
+          var tailTo = atMost match {
+            case None =>
+              convert(Re.Kleene(arg, isLazy), to)
+
+            case Some(m) =>
+              var i = 0
+              var tailToPart = to
+              while (i < (m - atLeast)) {
+                val tailStart = convert(arg, tailToPart)
+                val forkState = freshState()
+                val (plusState, minusState) = if (isLazy) (tailToPart, tailStart) else (tailStart, tailToPart)
+                states += forkState -> M1.PlusMinus(plusState, minusState)
+                tailToPart = forkState
+                i += 1
+              }
+              tailToPart
+          }
+
+          var i = 0
+          while (i < atLeast) {
+            tailTo = convert(arg, tailTo)
+            i += 1
+          }
+          tailTo
 
         case _ => ???
       }

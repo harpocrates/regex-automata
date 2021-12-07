@@ -1,5 +1,8 @@
 package automata;
 
+import java.util.Iterator;
+import java.util.stream.IntStream;
+
 /**
  * Inclusive (and therefore non-empty) range of 16-bit code units.
  *
@@ -12,7 +15,7 @@ package automata;
 public record CodeUnitRange(
   char lowerBound,
   char upperBound
-) implements Comparable<CodeUnitRange> {
+) implements Comparable<CodeUnitRange>, Iterable<Character> {
 
   public static final CodeUnitRange FULL =
     CodeUnitRange.between(Character.MIN_VALUE, Character.MAX_VALUE);
@@ -69,6 +72,14 @@ public record CodeUnitRange(
   public int compareTo(CodeUnitRange other) {
     int lowCompare = Character.compare(lowerBound, other.lowerBound);
     return lowCompare != 0 ? lowCompare : Character.compare(upperBound, other.upperBound);
+  }
+
+  @Override
+  public Iterator<Character> iterator() {
+    return IntStream
+      .rangeClosed(lowerBound, upperBound)
+      .mapToObj(codeUnit -> Character.valueOf((char)codeUnit))
+      .iterator();
   }
 
   /**

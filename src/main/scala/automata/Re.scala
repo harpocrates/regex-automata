@@ -186,5 +186,8 @@ object Re extends RegexVisitor[Re, CharClass] {
   override def visitCharacterClass(cls: CharClass) =
     cls
 
+  override def visitBuiltinClass(cls: CharClassVisitor.BuiltinClass) =
+    cls.desugar(this)
+
   def parse(src: String): Re = RegexParser.parse(Re, src)
 }
