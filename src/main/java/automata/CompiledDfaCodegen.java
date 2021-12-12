@@ -318,7 +318,7 @@ public final class CompiledDfaCodegen {
 
         mv.visitVarInsn(Opcodes.ALOAD, statesVar);
         mv.visitVarInsn(Opcodes.ILOAD, statesOffsetVar);
-        mv.visitIntInsn(Opcodes.SIPUSH, (short) stateId); // TODO: `bipush` or `iconst` when possible
+        pushConstantInt(mv, stateId);
         mv.visitInsn(Opcodes.IASTORE);
 
         // Increment the state offset (no need to worry about overflow - `offsetVar` tracks that)
@@ -335,7 +335,6 @@ public final class CompiledDfaCodegen {
       mv.visitVarInsn(Opcodes.ILOAD, offsetVar);
       CHARAT_M.invokeMethod(mv, CHARSEQUENCE_CLASS_NAME);
 
-      // jump to the next state based on the character (TODO: use `ifeq` if there is one transition)
       final var transitions = new TreeMap<Character, Dfa.Transition<Q3, ?>>(m3.transitions(state));
       final int[] charValues = transitions
         .keySet()
@@ -347,7 +346,8 @@ public final class CompiledDfaCodegen {
         .stream()
         .map((transition) -> q3States.get(transition.targetState()))
         .toArray(Label[]::new);
-      mv.visitLookupSwitchInsn(
+      makeBranch(
+        mv,
         returnFailure, // no transition found means no match
         charValues,
         stateLabels
@@ -446,7 +446,7 @@ public final class CompiledDfaCodegen {
 
     // Initialize the `groups` array to the right length, filled with `-1`
     final int groupsArrLen = groupCount * 2;
-    mv.visitIntInsn(Opcodes.SIPUSH, (short) groupsArrLen); // TODO: overflow!?
+    pushConstantInt(mv, groupsArrLen);
     mv.visitIntInsn(Opcodes.NEWARRAY, Opcodes.T_INT);
     mv.visitInsn(Opcodes.DUP);
     mv.visitVarInsn(Opcodes.ASTORE, groupsVar);
@@ -536,7 +536,8 @@ public final class CompiledDfaCodegen {
         .values()
         .stream()
         .toArray(Label[]::new);
-      mv.visitLookupSwitchInsn(
+      makeBranch(
+        mv,
         returnFailure, // no transition found means no match
         q3StateIdValues,
         stateLabels
@@ -569,7 +570,7 @@ public final class CompiledDfaCodegen {
 
           // TODO minimize
           mv.visitVarInsn(Opcodes.ALOAD, groupsVar);
-          mv.visitIntInsn(Opcodes.SIPUSH, (short) groupOff); // TODO: `bipush` or `iconst` when possible, `ldc` fallback
+          pushConstantInt(mv, groupOff);
           mv.visitVarInsn(Opcodes.ILOAD, strOffsetVar);
           mv.visitInsn(Opcodes.IASTORE);
         }
@@ -598,4 +599,94 @@ public final class CompiledDfaCodegen {
     mv.visitInsn(Opcodes.ARETURN);
   }
 
+  /**
+   * Generate bytecode equivalent to `lookupswitch`, but possibly more compact.
+   *
+   * Method bodies are limited in length by the fact the code array must have
+   * length fitting in an unsigned 16-bit number. This fact, combined with the
+   * knowledge that `lookupswitch` is one of the largets instructions, we have
+   * an incentive to detect cases where we can emit equivalent but shorter
+   * bytecode.
+   *
+   * TODO: test for ranges
+   * TODO: consider when `tableswitch` is more compact
+   *
+   * @param mv method visitor
+   * @param dflt label to jump to if nothing else matches
+   * @param values test values in the switch (sorted in ascending order)
+   * @param labels labels to jump to if the scrutinee is in the test values
+   */
+  private static void makeBranch(
+    MethodVisitor mv,
+    Label dflt,
+    int[] values,
+    Label[] labels
+  ) {
+    if (values.length == 0) {
+      mv.visitInsn(Opcodes.POP);
+      mv.visitJumpInsn(Opcodes.GOTO, dflt);
+    } else if (values.length == 1) {
+      if (values[0] == 0) {
+        mv.visitJumpInsn(Opcodes.IFEQ, labels[0]);
+        mv.visitJumpInsn(Opcodes.GOTO, dflt);
+      } else {
+        pushConstantInt(mv, values[0]);
+        mv.visitJumpInsn(Opcodes.IF_ICMPEQ, labels[0]);
+        mv.visitJumpInsn(Opcodes.GOTO, dflt);
+      }
+    } else {
+      mv.visitLookupSwitchInsn(dflt, values, labels);
+    }
+  }
+
+  /**
+   * Push an integer constant onto the stack.
+   *
+   * This chooses the instruction(s) that use the least bytecode space.
+   *
+   * @param mv method visitor
+   * @param constant integer constant
+   */
+  private static void pushConstantInt(
+    MethodVisitor mv,
+    int constant
+  ) {
+    switch (constant) {
+      case -1:
+        mv.visitInsn(Opcodes.ICONST_M1);
+        return;
+
+      case 0:
+        mv.visitInsn(Opcodes.ICONST_0);
+        return;
+
+      case 1:
+        mv.visitInsn(Opcodes.ICONST_1);
+        return;
+
+      case 2:
+        mv.visitInsn(Opcodes.ICONST_2);
+        return;
+
+      case 3:
+        mv.visitInsn(Opcodes.ICONST_3);
+        return;
+
+      case 4:
+        mv.visitInsn(Opcodes.ICONST_4);
+        return;
+
+      case 5:
+        mv.visitInsn(Opcodes.ICONST_5);
+        return;
+    }
+
+    if (Byte.MIN_VALUE <= constant && constant <= Byte.MAX_VALUE) {
+      mv.visitIntInsn(Opcodes.BIPUSH, constant);
+    } else if (Short.MIN_VALUE <= constant && constant <= Short.MAX_VALUE) {
+      mv.visitIntInsn(Opcodes.SIPUSH, constant);
+    } else {
+      mv.visitLdcInsn(Integer.valueOf(constant));
+    }
+  }
 }
