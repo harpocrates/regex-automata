@@ -99,26 +99,6 @@ object M1 {
 
     val states = Map.newBuilder[Int, M1.Transition]
 
-    val charClassVisitor = new CharClassVisitor[CodeUnitSet] {
-      def visitCharacter(cp: Int) =
-        CodeUnitSet.of(CodeUnitRange.single(cp.asInstanceOf[Char]))
-
-      def visitRange(from: Int, to: Int) =
-        CodeUnitSet.of(CodeUnitRange.between(from.asInstanceOf[Char], to.asInstanceOf[Char]))
-
-      def visitNegated(n: CodeUnitSet) =
-        n.complement()
-
-      def visitUnion(lhs: CodeUnitSet, rhs: CodeUnitSet) =
-        lhs.union(rhs)
-
-      def visitIntersection(lhs: CodeUnitSet, rhs: CodeUnitSet) =
-        lhs.intersection(rhs)
-
-      def visitBuiltinClass(cls: CharClassVisitor.BuiltinClass) =
-        cls.desugar(this)
-    }
-
     /** @param re regex
       * @param to state at which to end
       * @return state at which the regex starts
@@ -129,21 +109,27 @@ object M1 {
           to
 
         case c: CharClass =>
-          val set = c.acceptCharClass(charClassVisitor)
+          val codePointSet = c.acceptCharClass(CodePointSetVisitor.INSTANCE)
+
+          if (!codePointSet.difference(IntRangeSet.of(CodePointSetVisitor.BMP_RANGE)).isEmpty()) {
+            throw new IllegalArgumentException("Codepoints outside the BMP aren't supported yet")
+          }
+
           val from = freshState()
-          set.asScala.toList match {
+          codePointSet.iterator.asScala.map(_.intValue().asInstanceOf[Char]).toList match {
             case Nil => ()
             case ch :: chs =>
               states += from -> chs.foldLeft[Transition](M1.Character(ch, to)) {
-                (acc: Transition, c: java.lang.Character) =>
+                (acc: Transition, c: Char) =>
                   val accFrom = freshState()
                   val cFrom = freshState()
                   states += accFrom -> acc
-                  states += cFrom -> M1.Character(c.charValue, to)
+                  states += cFrom -> M1.Character(c, to)
                   M1.PlusMinus(accFrom, cFrom)
               }
           }
           from
+
 
      //   case Re.Character(c) =>
      //     if (java.lang.Character.charCount(c) == 1) {

@@ -2,38 +2,38 @@ package automata;
 
 import java.util.*;
 import java.util.function.IntPredicate;
-import java.util.stream.StreamSupport;
+import java.util.stream.IntStream;
 import static java.util.AbstractMap.SimpleImmutableEntry;
 
 /**
- * Set of 16-bit code units.
+ * Set of integers, tracked using ranges.
  *
  * The constraint on ranges being non-overlapping, non-contiguous, and sorted
  * ensures that there is always exactly one canonical instance for any logical
- * set of codepoints. If the input set of code units is not already in this
+ * set of integers. If the input set of integers is not already in this
  * format, construct the set using {@link #unionOf}.
  *
  * @param ranges non-overlapping, non-contiguous, and sorted ranges
  */
-public record CodeUnitSet(
-  List<CodeUnitRange> ranges
-) implements Iterable<Character> {
+public record IntRangeSet(
+  List<IntRange> ranges
+) implements Iterable<Integer> {
 
-  public CodeUnitSet(List<CodeUnitRange> ranges) {
+  public IntRangeSet(List<IntRange> ranges) {
 
     // Check that the ranges really are sorted
-    CodeUnitRange previousRange = null;
-    for (CodeUnitRange range : ranges) {
+    IntRange previousRange = null;
+    for (IntRange range : ranges) {
       if (previousRange != null && previousRange.upperBound() + 1 >= range.lowerBound()) {
         throw new IllegalArgumentException(
-          "Code unit ranges are overlapping or not sorted: " + previousRange + " and " + range
+          "Ranges are overlapping or not sorted: " + previousRange + " and " + range
         );
       }
       previousRange = range;
     }
 
     // Make a defensive copy of the list
-    this.ranges = List.<CodeUnitRange>copyOf(ranges);
+    this.ranges = List.<IntRange>copyOf(ranges);
   }
 
   /**
@@ -46,8 +46,8 @@ public record CodeUnitSet(
    * @param ranges input ranges
    * @return set containing the ranges
    */
-  public static CodeUnitSet of(CodeUnitRange... ranges) {
-    return new CodeUnitSet(Arrays.asList(ranges));
+  public static IntRangeSet of(IntRange... ranges) {
+    return new IntRangeSet(Arrays.asList(ranges));
   }
 
   /**
@@ -59,13 +59,13 @@ public record CodeUnitSet(
    * @param ranges input ranges
    * @return set containing the ranges
    */
-  public static CodeUnitSet unionOf(CodeUnitRange... ranges) {
-    return union(Arrays.stream(ranges).map(range -> CodeUnitSet.of(range)).toList());
+  public static IntRangeSet unionOf(IntRange... ranges) {
+    return union(Arrays.stream(ranges).map(range -> IntRangeSet.of(range)).toList());
   }
 
   @Override
   public String toString() {
-    final var builder = new StringBuilder("CodeUnitSet.of(");
+    final var builder = new StringBuilder("IntRangeSet.of(");
     boolean needsSpace = false;
     for (var range : ranges) {
       if (needsSpace) {
@@ -79,42 +79,43 @@ public record CodeUnitSet(
     return builder.toString();
   }
 
+  public IntStream stream() {
+    return ranges.stream().flatMapToInt(IntRange::stream);
+  }
+
   @Override
-  public Iterator<Character> iterator() {
-    return StreamSupport
-      .stream(ranges.spliterator(), false)
-      .flatMap(range -> StreamSupport.stream(range.spliterator(), false))
-      .iterator();
+  public Iterator<Integer> iterator() {
+    return stream().iterator();
   }
 
   /**
    * Empty set.
    *
-   * Contains no 16-bit code unit.
+   * Contains no integers.
    */
-  public static final CodeUnitSet EMPTY = new CodeUnitSet(List.<CodeUnitRange>of());
+  public static final IntRangeSet EMPTY = new IntRangeSet(List.<IntRange>of());
 
   /**
    * Universal set.
    *
-   * Contains every 16-bit code unit.
+   * Contains every integer.
    */
-  public static final CodeUnitSet FULL = new CodeUnitSet(List.<CodeUnitRange>of(CodeUnitRange.FULL));
+  public static final IntRangeSet FULL = new IntRangeSet(List.<IntRange>of(IntRange.FULL));
 
   /**
-   * Whether this range contain the code unit.
+   * Whether this range contain the integer.
    *
    * The complexity is {@code O(log(M))} for {@code M} ranges in the set,
    * provided the set is backed by a random access list. If not, the fallback
    * is an {@code O(M)} linear scan.
    *
-   * @param codeUnit 16-bit code unit
-   * @return whether the code unit is in this range
+   * @param integer integer
+   * @return whether the integer is in this range
    */
-  public boolean contains(char codeUnit) {
+  public boolean contains(int integer) {
     int rangeIndex = Collections.binarySearch(
       ranges,
-      CodeUnitRange.single(codeUnit),
+      IntRange.single(integer),
       RANGE_BY_LOWER
     );
     if (rangeIndex == -1) {
@@ -122,7 +123,22 @@ public record CodeUnitSet(
     } else if (rangeIndex < 0) {
       rangeIndex = -rangeIndex - 2;
     }
-    return ranges.get(rangeIndex).contains(codeUnit);
+    return ranges.get(rangeIndex).contains(integer);
+  }
+
+  private static final Comparator<IntRange> RANGE_BY_LOWER = new Comparator<>() {
+    public int compare(IntRange r1, IntRange r2) {
+      return Integer.compare(r1.lowerBound(), r2.lowerBound());
+    }
+  };
+
+  /**
+   * Check if this set is empty.
+   *
+   * @return whether this set is empty
+   */
+  public boolean isEmpty() {
+    return ranges.isEmpty();
   }
 
   /**
@@ -131,10 +147,10 @@ public record CodeUnitSet(
    * The compexity is {@code O(N * M * log(N))} for {@code N} input sets with
    * {@code M} ranges in them.
    *
-   * @param sets collections of code unit sets
+   * @param sets collections of integer sets
    * @return union of set
    */
-  public static CodeUnitSet union(Collection<CodeUnitSet> sets) {
+  public static IntRangeSet union(Collection<IntRangeSet> sets) {
     return aggregateSets((int n) -> n >= 1, sets);
   }
 
@@ -146,8 +162,8 @@ public record CodeUnitSet(
    * @param other set to union with `this`
    * @return union of sets
    */
-  public CodeUnitSet union(CodeUnitSet other) {
-    return CodeUnitSet.union(List.of(this, other));
+  public IntRangeSet union(IntRangeSet other) {
+    return IntRangeSet.union(List.of(this, other));
   }
 
   /**
@@ -156,10 +172,10 @@ public record CodeUnitSet(
    * The compexity is {@code O(N * M * log(N))} for {@code N} input sets with
    * {@code M} ranges in them.
    *
-   * @param sets collections of code unit sets
+   * @param sets collections of integer sets
    * @return intersection of sets
    */
-  public static CodeUnitSet intersection(Collection<CodeUnitSet> sets) {
+  public static IntRangeSet intersection(Collection<IntRangeSet> sets) {
     final int inputSetCount = sets.size();
     return aggregateSets((int n) -> n == inputSetCount, sets);
   }
@@ -172,8 +188,34 @@ public record CodeUnitSet(
    * @param other set to intersect with `this`
    * @return intersection of sets
    */
-  public CodeUnitSet intersection(CodeUnitSet other) {
-    return CodeUnitSet.intersection(List.of(this, other));
+  public IntRangeSet intersection(IntRangeSet other) {
+    return IntRangeSet.intersection(List.of(this, other));
+  }
+
+  /**
+   * Compute the symmetric difference of a collection of sets.
+   *
+   * The compexity is {@code O(N * M * log(N))} for {@code N} input sets with
+   * {@code M} ranges in them.
+   *
+   * @param sets collections of integer sets
+   * @return symmetric difference of sets
+   */
+  public static IntRangeSet symmetricDifference(Collection<IntRangeSet> sets) {
+    final int inputSetCount = sets.size();
+    return aggregateSets((int n) -> n % 2 == 1, sets);
+  }
+
+  /**
+   * Take the symmetric difference of two sets.
+   *
+   * The compexity is {@code O(M)} for input sets with {@code M} ranges in them.
+   *
+   * @param other set to intersect with `this`
+   * @return symmetric difference of sets
+   */
+  public IntRangeSet symmetricDifference(IntRangeSet other) {
+    return IntRangeSet.symmetricDifference(List.of(this, other));
   }
 
   /**
@@ -183,16 +225,28 @@ public record CodeUnitSet(
    *
    * @return complement of set
    */
-  public CodeUnitSet complement() {
+  public IntRangeSet complement() {
     return aggregateSets((int n) -> n == 0, List.of(this));
+  }
+
+  /**
+   * Take the difference with another set.
+   *
+   * The compexity is {@code O(M)} for input sets with {@code M} ranges in them.
+   *
+   * @param other set to subtract from `this`
+   * @return set difference
+   */
+  public IntRangeSet difference(IntRangeSet other) {
+    return this.intersection(other.complement());
   }
 
   /**
    * Aggregate a collection of sets into one set.
    *
-   * Criteria for a code unit being in the output set is whether that code
-   * point is in an accepted number of input sets. This covers most set
-   * operations uniformly
+   * Criteria for an integer being in the output set is whether that integer
+   * is in an accepted number of input sets. This covers most set operations
+   * uniformly
    *
    *  - Union with {@code (int n) -> n >= 1}
    *  - Intersection with {@code (int n) -> n == N} (for {@code N} input sets)
@@ -224,14 +278,14 @@ public record CodeUnitSet(
    *                      output set contain it?
    * @param inputSets input sets
    */
-  private static CodeUnitSet aggregateSets(
+  private static IntRangeSet aggregateSets(
     IntPredicate pointInOutput,
-    Iterable<CodeUnitSet> inputSets
+    Iterable<IntRangeSet> inputSets
   ) {
 
-   final PriorityQueue<SimpleImmutableEntry<Boolean, ListIterator<CodeUnitRange>>> endpoints =
+   final PriorityQueue<SimpleImmutableEntry<Boolean, ListIterator<IntRange>>> endpoints =
       new PriorityQueue<>(RANGE_ITERATOR_COMPARATOR);
-    for (CodeUnitSet set : inputSets) {
+    for (IntRangeSet set : inputSets) {
       final var ranges = set.ranges;
       if (!ranges.isEmpty()) {
         endpoints.add(new SimpleImmutableEntry<>(true, ranges.listIterator()));
@@ -240,34 +294,52 @@ public record CodeUnitSet(
     }
 
     // List of output ranges
-    final var outputRanges = new ArrayList<CodeUnitRange>();
+    final var outputRanges = new ArrayList<IntRange>();
+    int activeLower = Integer.MIN_VALUE;
+    int previousActiveUpper = Integer.MIN_VALUE;
+
     int openRanges = 0;
-    char activeLower = Character.MIN_VALUE;
-    char previousActiveUpper = Character.MIN_VALUE;
     boolean inActiveRange = pointInOutput.test(openRanges);
+
+    boolean firstRange = inActiveRange;
+    boolean lastRange = false;
 
     while (!endpoints.isEmpty()) {
 
       final var nextEndpoint = endpoints.poll();
       final boolean isUpperEndpoint = nextEndpoint.getKey();
-      final ListIterator<CodeUnitRange> ranges = nextEndpoint.getValue();
-      final CodeUnitRange nextRange = ranges.next();
+      final ListIterator<IntRange> ranges = nextEndpoint.getValue();
+      final IntRange nextRange = ranges.next();
+      final int endpoint = isUpperEndpoint ? nextRange.upperBound() : nextRange.lowerBound();
+
 
       // Update the count of open ranges and check for start/end of output range
       openRanges += isUpperEndpoint ? -1 : 1;
+
       if (inActiveRange != pointInOutput.test(openRanges)) {
         inActiveRange = !inActiveRange;
         if (inActiveRange) {
-          activeLower = nextRange.lowerBound();
+
+          // If this was an upper endpoint, the first point satisfying the condition is the next one
+          activeLower = isUpperEndpoint ? endpoint + 1 : endpoint;
+          if (isUpperEndpoint && endpoint == Integer.MAX_VALUE) {
+            lastRange = true;
+          }
 
           // Merge contiguous intervals
           if (previousActiveUpper + 1 == activeLower && !outputRanges.isEmpty()) {
             activeLower = outputRanges.remove(outputRanges.size() - 1).lowerBound();
           }
         } else {
-          previousActiveUpper = nextRange.upperBound();
-          outputRanges.add(CodeUnitRange.between(activeLower, previousActiveUpper));
+          // If this was a lower endpoint, the last point satisfying the condition is the previous one
+          previousActiveUpper = isUpperEndpoint ? endpoint : endpoint - 1;
+
+          // Check for situations where the closed range is actually empty
+          if (!(firstRange && endpoint == Integer.MIN_VALUE) && previousActiveUpper >= activeLower) {
+            outputRanges.add(IntRange.between(activeLower, previousActiveUpper));
+          }
         }
+        firstRange = false;
       }
 
       // Re-insert the iterator if it still has more endpoints
@@ -277,18 +349,12 @@ public record CodeUnitSet(
     }
 
     // Close out a trailing active range
-    if (inActiveRange) {
-      outputRanges.add(CodeUnitRange.between(activeLower, Character.MAX_VALUE));
+    if (!lastRange && inActiveRange) {
+      outputRanges.add(IntRange.between(activeLower, Integer.MAX_VALUE));
     }
 
-    return new CodeUnitSet(outputRanges);
+    return new IntRangeSet(outputRanges);
   }
-
-  private static final Comparator<CodeUnitRange> RANGE_BY_LOWER = new Comparator<>() {
-    public int compare(CodeUnitRange r1, CodeUnitRange r2) {
-      return Character.compare(r1.lowerBound(), r2.lowerBound());
-    }
-  };
 
   /**
    * Compares (non-empty) iterators based on
@@ -298,10 +364,10 @@ public record CodeUnitSet(
    *
    * Lower bounds take priority over upper bounds if there is a tie
    */
-  private static final Comparator<SimpleImmutableEntry<Boolean, ListIterator<CodeUnitRange>>> RANGE_ITERATOR_COMPARATOR =
+  private static final Comparator<SimpleImmutableEntry<Boolean, ListIterator<IntRange>>> RANGE_ITERATOR_COMPARATOR =
     Comparator
-      .comparingInt((SimpleImmutableEntry<Boolean, ListIterator<CodeUnitRange>> e) -> {
-        final CodeUnitRange head = e.getValue().next();
+      .comparingInt((SimpleImmutableEntry<Boolean, ListIterator<IntRange>> e) -> {
+        final IntRange head = e.getValue().next();
         e.getValue().previous(); // roll iterator back
         return e.getKey() ? head.upperBound() : head.lowerBound();
       })
