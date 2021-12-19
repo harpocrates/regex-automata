@@ -65,11 +65,11 @@ object M2 {
     * @param m1 NFA to cnovert
     * @return equivalent NFA
     */
-  def fromM1(m1: M1): M2 = {
+  def fromM1(m1: M1[Int, Char]): M2 = {
 
     // We only keep the terminal state and states with a `Character` out edge
     val preservedStates: Set[Int] = m1.states
-      .collect { case (from, _: M1.Character) => from }
+      .collect { case (from, _: M1.Character[Int @unchecked, Char @unchecked]) => from }
       .toSet
       .+(m1.terminal)
 
@@ -89,7 +89,7 @@ object M2 {
       .toMap
     for ((from, transition) <- m1.states) {
       transition match {
-        case _: M1.Character => ()
+        case _: M1.Character[Int @unchecked, Char @unchecked] => ()
         case M1.PlusMinus(plus, minus) =>
           reachableFrom(from)
             .addOne(plus -> Plus)

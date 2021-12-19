@@ -13,10 +13,10 @@ import scala.jdk.CollectionConverters._
   * @param initial initial state
   * @param terminal final state
   */
-final case class M1(
-  states: Map[Int, M1.Transition],
-  initial: Int,
-  terminal: Int
+final case class M1[Q, C](
+  states: Map[Q, M1.Transition[Q, C]],
+  initial: Q,
+  terminal: Q
 ) {
 
   /** Generate the source-code for a valid DOT graph
@@ -56,14 +56,14 @@ final case class M1(
     * @param from where in the DFA to start
     * @param to where in the DFA to end
     */
-  def pi(from: Int, to: Int): Option[List[M1.GroupTransition]] = {
+  def pi(from: Q, to: Q): Option[List[M1.GroupTransition[Q]]] = {
     if (from == to || from == terminal) {
       Some(Nil)
     } else {
       states(from) match {
         case M1.PlusMinus(plus, minus) =>
           pi(plus, to) orElse pi(minus, to)
-        case group: M1.GroupTransition =>
+        case group: M1.GroupTransition[Q @unchecked] =>
           pi(group.to, to).map(group :: _)
         case _ =>
           None
@@ -74,21 +74,45 @@ final case class M1(
 }
 object M1 {
 
-  sealed abstract class Transition
-  sealed abstract class GroupTransition extends Transition {
-    def to: Int
+  sealed abstract class Transition[+Q, +C]
+  sealed abstract class GroupTransition[+Q] extends Transition[Q, Nothing] {
+    def to: Q
   }
-  final case class Character(c: Char, to: Int) extends Transition
-  final case class PlusMinus(plus: Int, minus: Int) extends Transition
-  final case class GroupStart(groupIdx: Int, to: Int) extends GroupTransition
-  final case class GroupEnd(groupIdx: Int, to: Int) extends GroupTransition
+  final case class Character[+Q, +C](c: C, to: Q) extends Transition[Q, C]
+  final case class PlusMinus[+Q](plus: Q, minus: Q) extends Transition[Q, Nothing]
+  final case class GroupStart[+Q](groupIdx: Int, to: Q) extends GroupTransition[Q]
+  final case class GroupEnd[+Q](groupIdx: Int, to: Q) extends GroupTransition[Q]
+
+  private class Builder extends M1NfaBuilder[Int] {
+    private[this] var currentState = -1
+    private[this] val states = Map.newBuilder[Int, Transition[Int, IntRangeSet]]
+
+    def freshState(): Int = {
+      currentState += 1
+      currentState
+    }
+
+    def addPlusMinusState(state: Int, plus: Int, minus: Int) =
+      states += state -> PlusMinus(plus, minus)
+
+    def addCodeUnitsState(state: Int, codeUnits: IntRangeSet, to: Int) =
+      states += state -> Character(codeUnits, to)
+
+    def addGroupState(state: Int, groupIdx: Int, isStart: Boolean, to: Int) = {
+      val transition = if (isStart) GroupStart(groupIdx, to) else GroupEnd(groupIdx, to)
+      states += state -> transition
+    }
+
+    def addBoundaryState(state: Int, boundary: RegexVisitor.Boundary, to: Int) =
+      ???
+  }
 
   /** Convert a regex AST into an equivalent M1 NFA
     *
     * @param re regex to convert
     * @return equivalent NFA
     */
-  def fromRe(re: Re): M1 = {
+  def fromRe(re: Re): M1[Int, Char] = {
 
     var nextState: Int = 1
     def freshState(): Int = {
@@ -97,7 +121,7 @@ object M1 {
       s
     }
 
-    val states = Map.newBuilder[Int, M1.Transition]
+    val states = Map.newBuilder[Int, M1.Transition[Int, Char]]
 
     /** @param re regex
       * @param to state at which to end
@@ -119,8 +143,8 @@ object M1 {
           codePointSet.iterator.asScala.map(_.intValue().asInstanceOf[Char]).toList match {
             case Nil => ()
             case ch :: chs =>
-              states += from -> chs.foldLeft[Transition](M1.Character(ch, to)) {
-                (acc: Transition, c: Char) =>
+              states += from -> chs.foldLeft[Transition[Int,Char]](M1.Character(ch, to)) {
+                (acc: Transition[Int,Char], c: Char) =>
                   val accFrom = freshState()
                   val cFrom = freshState()
                   states += accFrom -> acc

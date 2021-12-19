@@ -4,6 +4,7 @@ import java.util.*;
 import java.util.function.IntPredicate;
 import java.util.stream.IntStream;
 import static java.util.AbstractMap.SimpleImmutableEntry;
+import java.util.stream.Collectors;
 
 /**
  * Set of integers, tracked using ranges.
@@ -283,13 +284,12 @@ public record IntRangeSet(
     Iterable<IntRangeSet> inputSets
   ) {
 
-   final PriorityQueue<SimpleImmutableEntry<Boolean, ListIterator<IntRange>>> endpoints =
-      new PriorityQueue<>(RANGE_ITERATOR_COMPARATOR);
+   final var endpoints = new PriorityQueue<EndpointIterator<Void>>(RANGE_ITERATOR_COMPARATOR);
     for (IntRangeSet set : inputSets) {
       final var ranges = set.ranges;
       if (!ranges.isEmpty()) {
-        endpoints.add(new SimpleImmutableEntry<>(true, ranges.listIterator()));
-        endpoints.add(new SimpleImmutableEntry<>(false, ranges.listIterator()));
+        endpoints.add(new EndpointIterator<Void>(true, ranges.listIterator(), null));
+        endpoints.add(new EndpointIterator<Void>(false, ranges.listIterator(), null));
       }
     }
 
@@ -306,12 +306,9 @@ public record IntRangeSet(
 
     while (!endpoints.isEmpty()) {
 
-      final var nextEndpoint = endpoints.poll();
-      final boolean isUpperEndpoint = nextEndpoint.getKey();
-      final ListIterator<IntRange> ranges = nextEndpoint.getValue();
-      final IntRange nextRange = ranges.next();
-      final int endpoint = isUpperEndpoint ? nextRange.upperBound() : nextRange.lowerBound();
-
+      final EndpointIterator<Void> nextEndpointsIter = endpoints.poll();
+      final boolean isUpperEndpoint = nextEndpointsIter.isUpper();
+      final int endpoint = nextEndpointsIter.nextEndpoint();
 
       // Update the count of open ranges and check for start/end of output range
       openRanges += isUpperEndpoint ? -1 : 1;
@@ -343,8 +340,8 @@ public record IntRangeSet(
       }
 
       // Re-insert the iterator if it still has more endpoints
-      if (ranges.hasNext()) {
-        endpoints.add(nextEndpoint);
+      if (nextEndpointsIter.ranges().hasNext()) {
+        endpoints.add(nextEndpointsIter);
       }
     }
 
@@ -357,20 +354,99 @@ public record IntRangeSet(
   }
 
   /**
+   * Convert a set of ranges into a set of disjoint partition sets.
+   *
+   * The range sets returned should be disjoint and keyed by all of the input
+   * sets containing that partition. Additionally, any of the input sets should
+   * be recoverable by taking the union of all of the values whose keys contain
+   * the input set's key.
+   *
+   * Note that this does not include the empty set as a key.
+   *
+   * @param sets input sets, keyed with some unique identifier
+   * @return mapping from sets containing a partition subset to the partition subset
+   */
+  public static <K> Map<Set<K>, IntRangeSet> disjointPartition(Map<K, IntRangeSet> sets) {
+
+   final var endpoints = new PriorityQueue<EndpointIterator<K>>(RANGE_ITERATOR_COMPARATOR);
+    for (Map.Entry<K, IntRangeSet> entry : sets.entrySet()) {
+      final var ranges = entry.getValue().ranges;
+      final K key = entry.getKey();
+      if (!ranges.isEmpty()) {
+        endpoints.add(new EndpointIterator<K>(true, ranges.listIterator(), key));
+        endpoints.add(new EndpointIterator<K>(false, ranges.listIterator(), key));
+      }
+    }
+
+    // Lists of output ranges
+    final var outputRangesMap = new HashMap<Set<K>, ArrayList<IntRange>>();
+    int currentLeftEndpoint = 0;
+    final Set<K> openRanges = new HashSet<K>();
+
+    while (!endpoints.isEmpty()) {
+
+      final EndpointIterator<K> nextEndpointsIter = endpoints.poll();
+      final int endpoint = nextEndpointsIter.nextEndpoint();
+
+      if (nextEndpointsIter.isUpper()) {
+        if (currentLeftEndpoint <= endpoint) {
+          outputRangesMap
+            .computeIfAbsent(new HashSet<K>(openRanges), k -> new ArrayList<>())
+            .add(IntRange.between(currentLeftEndpoint, endpoint));
+        }
+        openRanges.remove(nextEndpointsIter.tag());
+        currentLeftEndpoint = endpoint + 1;
+        if (endpoint == Integer.MAX_VALUE) {
+          break;
+        }
+      } else {
+        if (!openRanges.isEmpty() && currentLeftEndpoint < endpoint) {
+          outputRangesMap
+            .computeIfAbsent(new HashSet<K>(openRanges), k -> new ArrayList<>())
+            .add(IntRange.between(currentLeftEndpoint, endpoint - 1));
+        }
+        openRanges.add(nextEndpointsIter.tag());
+        currentLeftEndpoint = endpoint;
+      }
+
+      // Re-insert the iterator if it still has more endpoints
+      if (nextEndpointsIter.ranges().hasNext()) {
+        endpoints.add(nextEndpointsIter);
+      }
+    }
+
+    return outputRangesMap
+      .entrySet()
+      .stream()
+      .collect(Collectors.toMap(Map.Entry::getKey, e -> new IntRangeSet(e.getValue())));
+  }
+
+  /**
    * Compares (non-empty) iterators based on
    *
    *   - the lower bound of their first range if the boolean is false
    *   - the upper bound of their first range if the boolean is true
    *
-   * Lower bounds take priority over upper bounds if there is a tie
+   * Lower bounds take priority over upper bounds if there is a tie.
    */
-  private static final Comparator<SimpleImmutableEntry<Boolean, ListIterator<IntRange>>> RANGE_ITERATOR_COMPARATOR =
+  private static final Comparator<EndpointIterator<?>> RANGE_ITERATOR_COMPARATOR =
     Comparator
-      .comparingInt((SimpleImmutableEntry<Boolean, ListIterator<IntRange>> e) -> {
-        final IntRange head = e.getValue().next();
-        e.getValue().previous(); // roll iterator back
-        return e.getKey() ? head.upperBound() : head.lowerBound();
-      })
-      .thenComparing(SimpleImmutableEntry::getKey);
+      .comparingInt(EndpointIterator<?>::peekEndpoint)
+      .thenComparing(EndpointIterator<?>::isUpper);
+
+  private record EndpointIterator<T>(boolean isUpper, ListIterator<IntRange> ranges, T tag) {
+
+    int nextEndpoint() {
+      final IntRange next = ranges.next();
+      return isUpper ? next.upperBound() : next.lowerBound();
+    }
+
+    int peekEndpoint() {
+      final int next = nextEndpoint();
+      ranges.previous(); // roll iterator back
+      return next;
+    }
+  }
+
 }
 
