@@ -1,7 +1,7 @@
 package automata
 
 import scala.collection.mutable
-import java.util.{Map => JavaMap, Collections}
+import java.util.{Map => JavaMap, Set => JavaSet, Collections}
 import scala.jdk.CollectionConverters._
 
 /** DFA obtained from a powerset construction on a reversed M2 NFA
@@ -17,11 +17,11 @@ final case class M3(
   terminals: Set[Set[Int]]
 ) extends Dfa[Set[Int], Character, Unit] {
 
-  def isTerminal(state: Set[Int]) = terminals.contains(state)
+  val accepting: JavaSet[Set[Int]] = terminals.asJava
 
-  def transitions(state: Set[Int]): JavaMap[Character, Dfa.Transition[Set[Int], Unit]] = {
+  def transitionsMap(state: Set[Int]): JavaMap[Character, Fsm.Transition[Set[Int], Unit]] = {
 
-    final class NoAnnotTrans(to: Set[Int]) extends Dfa.Transition[Set[Int], Unit] {
+    final class NoAnnotTrans(to: Set[Int]) extends Fsm.Transition[Set[Int], Unit] {
       def annotation = ()
       def targetState = to
     }
@@ -31,7 +31,7 @@ final case class M3(
       case Some(ts) =>
         ts.view
           .map { case (k, v) => (Character.valueOf(k), new NoAnnotTrans(v)) }
-          .toMap[Character, Dfa.Transition[Set[Int], Unit]]
+          .toMap[Character, Fsm.Transition[Set[Int], Unit]]
           .asJava
     }
   }
@@ -135,9 +135,13 @@ object M3 {
       .states
       .toList
       .flatMap {
-        case (from, (c, tos)) =>
-          val reversedTransition = c -> from
-          tos.keys.toList.map(_ -> reversedTransition)
+        case (from, (chars, tos)) =>
+          for {
+            to <- tos.keys
+            c <- chars
+          } yield to -> (c -> from)
+      //    val reversedTransition = c -> from
+      //    tos.keys.toList.map(_ -> reversedTransition)
       }
       .toSet[(Int, (Char, Int))]
       .groupMap(_._1)(_._2)

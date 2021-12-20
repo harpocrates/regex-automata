@@ -2,6 +2,7 @@ package automata
 
 // Follow https://www.labs.hpe.com/techreports/2012/HPL-2012-41R1.pdf
 import scala.jdk.CollectionConverters._
+import scala.collection.mutable
 
 /** NFA corresponding to regex
   *
@@ -70,7 +71,6 @@ final case class M1[Q, C](
       }
     }
   }
-
 }
 object M1 {
 
@@ -78,7 +78,7 @@ object M1 {
   sealed abstract class GroupTransition[+Q] extends Transition[Q, Nothing] {
     def to: Q
   }
-  final case class Character[+Q, +C](c: C, to: Q) extends Transition[Q, C]
+  final case class Character[+Q, +C](c: List[C], to: Q) extends Transition[Q, C]
   final case class PlusMinus[+Q](plus: Q, minus: Q) extends Transition[Q, Nothing]
   final case class GroupStart[+Q](groupIdx: Int, to: Q) extends GroupTransition[Q]
   final case class GroupEnd[+Q](groupIdx: Int, to: Q) extends GroupTransition[Q]
@@ -96,7 +96,7 @@ object M1 {
       states += state -> PlusMinus(plus, minus)
 
     def addCodeUnitsState(state: Int, codeUnits: IntRangeSet, to: Int) =
-      states += state -> Character(codeUnits, to)
+      states += state -> Character(List(codeUnits), to)
 
     def addGroupState(state: Int, groupIdx: Int, isStart: Boolean, to: Int) = {
       val transition = if (isStart) GroupStart(groupIdx, to) else GroupEnd(groupIdx, to)
@@ -125,9 +125,10 @@ object M1 {
 
     /** @param re regex
       * @param to state at which to end
+      * @param desugarCharClassIntoUnion expand a character class into a union (for debugging)
       * @return state at which the regex starts
       */
-    def convert(re: Re, to: Int): Int =
+    def convert(re: Re, to: Int, desugarCharClassIntoUnion: Boolean = false): Int =
       re match {
         case Re.Epsilon =>
           to
@@ -140,20 +141,24 @@ object M1 {
           }
 
           val from = freshState()
-          codePointSet.iterator.asScala.map(_.intValue().asInstanceOf[Char]).toList match {
-            case Nil => ()
-            case ch :: chs =>
-              states += from -> chs.foldLeft[Transition[Int,Char]](M1.Character(ch, to)) {
-                (acc: Transition[Int,Char], c: Char) =>
-                  val accFrom = freshState()
-                  val cFrom = freshState()
-                  states += accFrom -> acc
-                  states += cFrom -> M1.Character(c, to)
-                  M1.PlusMinus(accFrom, cFrom)
-              }
+          val charList = codePointSet.iterator.asScala.map(_.intValue().asInstanceOf[Char]).toList
+          if (desugarCharClassIntoUnion) {
+            charList match {
+              case Nil => ()
+              case ch :: chs =>
+                states += from -> chs.foldLeft[Transition[Int,Char]](M1.Character(List(ch), to)) {
+                  (acc: Transition[Int,Char], c: Char) =>
+                    val accFrom = freshState()
+                    val cFrom = freshState()
+                    states += accFrom -> acc
+                    states += cFrom -> M1.Character(List(c), to)
+                    M1.PlusMinus(accFrom, cFrom)
+                }
+            }
+          } else {
+            states += from -> M1.Character(charList, to)
           }
           from
-
 
      //   case Re.Character(c) =>
      //     if (java.lang.Character.charCount(c) == 1) {

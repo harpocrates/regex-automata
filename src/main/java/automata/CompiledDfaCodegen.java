@@ -261,6 +261,8 @@ public final class CompiledDfaCodegen {
     final int statesVar = 2; // Local tracking states seen: `int[] seen`
     final int statesOffsetVar = 3; // Local tracking (ascending) offset in states: `int statesOffset`
 
+    final Set<Q3> terminals = m3.accepting();
+
     final Label returnFailure = new Label();
     final Label returnSuccess = new Label();
     final Map<Q3, Label> q3States = m3
@@ -328,14 +330,14 @@ public final class CompiledDfaCodegen {
       // decrement the offset and, if it becomes neagtive, return whether we are in terminal state
       mv.visitIincInsn(offsetVar, -1);
       mv.visitVarInsn(Opcodes.ILOAD, offsetVar);
-      mv.visitJumpInsn(Opcodes.IFLT, m3.isTerminal(state) ? returnSuccess : returnFailure);
+      mv.visitJumpInsn(Opcodes.IFLT, terminals.contains(state) ? returnSuccess : returnFailure);
 
       // get the next character
       mv.visitVarInsn(Opcodes.ALOAD, inputVar);
       mv.visitVarInsn(Opcodes.ILOAD, offsetVar);
       CHARAT_M.invokeMethod(mv, CHARSEQUENCE_CLASS_NAME);
 
-      final var transitions = new TreeMap<Character, Dfa.Transition<Q3, ?>>(m3.transitions(state));
+      final var transitions = new TreeMap<Character, Dfa.Transition<Q3, ?>>(m3.transitionsMap(state));
       final int[] charValues = transitions
         .keySet()
         .stream()
@@ -426,6 +428,8 @@ public final class CompiledDfaCodegen {
     final int strOffsetVar = 2; // Local tracking (ascending) offset in string: `int strOffset`
     final int groupsVar = 3; // Local tracking capture groups: `int[] groups`
 
+    final Set<Q4> terminals = m4.accepting();
+
     final Label returnFailure = new Label(); // TODO: is failure here possible!?
     final Label returnSuccess = new Label();
     final Map<Q4, Label> q4States = m4
@@ -477,7 +481,7 @@ public final class CompiledDfaCodegen {
       // decrement the offset and, if it becomes neagtive, return whether we are in terminal state
       mv.visitIincInsn(offsetVar, -1);
       mv.visitVarInsn(Opcodes.ILOAD, offsetVar);
-      mv.visitJumpInsn(Opcodes.IFLT, m4.isTerminal(state) ? returnSuccess : returnFailure);
+      mv.visitJumpInsn(Opcodes.IFLT, terminals.contains(state) ? returnSuccess : returnFailure);
 
       // Increment the string offset (don't worry about overflow - `offsetVar` covers that)
       mv.visitIincInsn(strOffsetVar, 1);
@@ -504,7 +508,7 @@ public final class CompiledDfaCodegen {
         new HashMap<SimpleEntry<Q4, List<RegexMarker>>, Label>();
       final SortedMap<Integer, Label> q3StateIdTargets =
         new TreeMap<Integer, Label>();
-      for (var transitionEntry : m4.transitions(state).entrySet()) {
+      for (var transitionEntry : m4.transitionsMap(state).entrySet()) {
         final Q4 q4Target = transitionEntry.getValue().targetState();
         final Q3 q3State = transitionEntry.getKey();
         final List<RegexMarker> markersList = StreamSupport

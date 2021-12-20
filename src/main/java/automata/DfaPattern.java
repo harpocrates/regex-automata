@@ -17,10 +17,10 @@ public interface DfaPattern {
    */
   public static DfaPattern compile(String regex)
   throws java.io.IOException, IllegalAccessException, NoSuchMethodException, InstantiationException, InvocationTargetException {
-    final M1 m1 = M1.fromRe(Re.parse(regex));
-    final M2 m2 = M2.fromM1(m1);
-    final M3 m3 = M3.fromM2(m2);
-    final M4 m4 = M4.fromM2M3(m2, m3);
+    final var m1 = M1.fromRe(Re.parse(regex));
+    final var m2 = M2.fromM1(m1);
+    final var m3 = M3.fromM2(m2);
+    final var m4 = M4.fromM2M3(m2, m3);
 
     final String className = "automata/DfaPattern$Compiled";
     final boolean debugInfo = false;

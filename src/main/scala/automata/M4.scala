@@ -2,7 +2,7 @@ package automata
 
 import java.lang.{Iterable => JavaIterable}
 import scala.collection.mutable
-import java.util.{Map => JavaMap, Collections}
+import java.util.{Map => JavaMap, Set => JavaSet, Collections}
 import scala.jdk.CollectionConverters._
 
 /** DFA obtained by augumenting M2 using M1 and M3
@@ -18,13 +18,13 @@ final case class M4(
   terminal: Int
 ) extends Dfa[Int, Set[Int], JavaIterable[RegexMarker]] {
 
-  def isTerminal(state: Int): Boolean = state == terminal
+  val accepting: JavaSet[Int] = JavaSet.of(terminal)
 
-  def transitions(state: Int): JavaMap[Set[Int], Dfa.Transition[Int, JavaIterable[RegexMarker]]] =
+  def transitionsMap(state: Int): JavaMap[Set[Int], Fsm.Transition[Int, JavaIterable[RegexMarker]]] =
     states.get(state) match {
       case None => Collections.emptyMap()
       case Some(ts) =>
-        ts.view.toMap[Set[Int], Dfa.Transition[Int, JavaIterable[RegexMarker]]].asJava
+        ts.view.toMap[Set[Int], Fsm.Transition[Int, JavaIterable[RegexMarker]]].asJava
     }
 
   /** Generate the source-code for a valid DOT graph
@@ -122,7 +122,7 @@ object M4 {
   final case class Transition(
     to: Int,
     groups: List[M2.GroupMarker]
-  ) extends Dfa.Transition[Int, JavaIterable[RegexMarker]] {
+  ) extends Fsm.Transition[Int, JavaIterable[RegexMarker]] {
     def targetState = to
     val annotation: JavaIterable[RegexMarker] = groups.view
       .map[RegexMarker] {

@@ -11,76 +11,18 @@ import java.util.function.BiConsumer;
  * @param <E> input symbol alphabet
  * @param <T> annotations on transitions
  */
-public interface Dfa<Q, E, T> {
+public interface Dfa<Q, E, T> extends Fsm<Q, T> {
 
   /**
-   * Initial state
-   *
-   * @return starting state in the DFA
-   */
-  Q initial();
-
-  /**
-   * All states
-   *
-   * @return set of all states in the DFA
-   */
-  default Set<Q> allStates() {
-    final Set<Q> states = new HashSet<Q>();
-    final Stack<Q> toVisit = new Stack<Q>();
-
-    {
-      final var first = initial();
-      toVisit.push(first);
-      states.add(first);
-    }
-
-    while (!toVisit.empty()) {
-      for (var transition : transitions(toVisit.pop()).values()) {
-        final Q target = transition.targetState();
-        if (states.add(target)) {
-          toVisit.push(target);
-        }
-      }
-    }
-
-    return states;
-  }
-
-  /**
-   * Check if the specified state is a terminal one or not
-   *
-   * @param state state inside the DFA
-   * @return whether the state is terminal
-   */
-  boolean isTerminal(Q state);
-
-  /**
-   * Look up transitions from a certain state
+   * Look up the mapping of transitions from a certain state
    *
    * @param state state inside the DFA
    * @return map of alphabet symbols to transitions
    */
-  Map<E, Transition<Q, T>> transitions(Q state);
+  Map<E, Transition<Q, T>> transitionsMap(Q state);
 
-  /**
-   * DFA transition
-   */
-  interface Transition<Q, T> {
-
-    /**
-     * Target of the transition
-     *
-     * @return state pointed to by this transition
-     */
-    Q targetState();
-
-    /**
-     * Annotation on the transition
-     *
-     * @return annotation stored on the transition
-     */
-    T annotation();
+  default Collection<Transition<Q, T>> transitions(Q state) {
+    return transitionsMap(state).values();
   }
 
   /**
@@ -90,7 +32,7 @@ public interface Dfa<Q, E, T> {
    * @param onState callback to invoke whenever entering a state
    * @param onJump callback to invoke whenever jumping across a transition
    * @param onMissingJump callback to invoke when there is no valid transition
-   * @return whether the DFA reached a terminal state
+   * @return whether the DFA reached an accepting state
    */
   static <Q, E, T> boolean run(
     Dfa<Q, E, T> dfa,
@@ -101,10 +43,11 @@ public interface Dfa<Q, E, T> {
   ) {
     Q currentState = dfa.initial();
     onState.accept(currentState);
+    Set<Q> terminals = dfa.accepting();
 
     while (input.hasNext()) {
       final E e = input.next();
-      final Transition<Q, T> transition = dfa.transitions(currentState).get(e);
+      final Transition<Q, T> transition = dfa.transitionsMap(currentState).get(e);
 
       // No transition found
       if (transition == null) {
@@ -118,7 +61,7 @@ public interface Dfa<Q, E, T> {
       onState.accept(currentState);
     }
 
-    return dfa.isTerminal(currentState);
+    return terminals.contains(currentState);
   }
 }
 

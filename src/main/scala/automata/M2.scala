@@ -9,7 +9,7 @@ import scala.collection.mutable
   * @param terminal terminal state
   */
 final case class M2(
-  states: Map[Int, (Char, Map[Int, List[M2.PathMarker]])],
+  states: Map[Int, (List[Char], Map[Int, List[M2.PathMarker]])],
   initial: Map[Int, List[M2.PathMarker]],
   terminal: Int
 ) {
@@ -37,7 +37,7 @@ final case class M2(
       builder ++= s"  \"init$i\" -> \"$i\" [label=<${groups.map(group).mkString}>];\n"
 
     for ((from, (c, tos)) <- states; (to, groups) <- tos) {
-      builder ++= s"  \"$from\" -> \"$to\" [label=<$c / ${groups.map(group).mkString}>];\n"
+      builder ++= s"  \"$from\" -> \"$to\" [label=<${c.mkString(", ")} / ${groups.map(group).mkString}>];\n"
     }
 
     builder ++= s"}"
@@ -47,9 +47,7 @@ final case class M2(
 
 object M2 {
 
-  sealed abstract class EmptyTransition
-  sealed abstract class PathMarker extends EmptyTransition
-  final case object Nop extends EmptyTransition
+  sealed abstract class PathMarker
   final case object Plus extends PathMarker
   final case object Minus extends PathMarker
 
@@ -81,71 +79,57 @@ object M2 {
      *   - `k` can reach `v1` and the shortest path starts with `l1`
      *   - `k` can reach `v2` and the shortest path starts with `l2`
      */
-    val reachableFrom: Map[Int, mutable.Map[Int, EmptyTransition]] = m1.states
+    val reachableFrom: Map[Int, mutable.Map[Int, M2.PathMarker]] = m1.states
       .iterator
       .map { case (from, _) => from }
-      .concat(List(m1.terminal))
-      .map { from => from -> mutable.Map.apply[Int, EmptyTransition](from -> Nop) }
+      .concat(List(m1.terminal, m1.initial))
+      .map { from => from -> mutable.Map.empty[Int, M2.PathMarker] }
       .toMap
     for ((from, transition) <- m1.states) {
       transition match {
         case _: M1.Character[Int @unchecked, Char @unchecked] => ()
         case M1.PlusMinus(plus, minus) =>
           reachableFrom(from)
-            .addOne(plus -> Plus)
-            .addOne(minus -> Minus)
+            .addOne(plus -> M2.Plus)
+            .addOne(minus -> M2.Minus)
         case M1.GroupStart(groupIdx, to) =>
           reachableFrom(from)
-            .addOne(to -> GroupMarker(true, groupIdx))
+            .addOne(to -> M2.GroupMarker(true, groupIdx))
         case M1.GroupEnd(groupIdx, to) =>
           reachableFrom(from)
-            .addOne(to -> GroupMarker(false, groupIdx))
+            .addOne(to -> M2.GroupMarker(false, groupIdx))
       }
     }
     for (k <- reachableFrom.keys; i <- reachableFrom.keys; j <- reachableFrom.keys) {
-      val reachIj: Option[EmptyTransition] = reachableFrom(i).get(j)
-      val reachIk: Option[EmptyTransition] = reachableFrom(i).get(k)
-      val reachKj: Option[EmptyTransition] = reachableFrom(k).get(j)
-      val reachIjThroughK: Option[EmptyTransition] = reachKj.flatMap(_ => reachIk)
+      val reachIj: Option[M2.PathMarker] = reachableFrom(i).get(j)
+      val reachIk: Option[M2.PathMarker] = reachableFrom(i).get(k)
+      val reachKj: Option[M2.PathMarker] = reachableFrom(k).get(j)
+      val reachIjThroughK: Option[M2.PathMarker] = reachKj.flatMap(_ => reachIk)
       (reachIj, reachIjThroughK) match {
         // `i` -> `j` was not previously known to be possible
         case (None, Some(t)) => reachableFrom(i).addOne(j -> t)
 
         // `i` -> `j` is now possible through a `Plus`
-        case (_, Some(Plus)) => reachableFrom(i).addOne(j -> Plus)
+        case (_, Some(M2.Plus)) => reachableFrom(i).addOne(j -> M2.Plus)
 
         // `i` -> `j` is not going to be improved
         case _ =>
       }
     }
 
-    def shortestGroupPath(from: Int, to: Int): List[PathMarker] = {
-      val path = List.newBuilder[PathMarker]
-      var current = from
-      var firstIteration = true
-      while (m1.states.contains(current) && (current != to || firstIteration)) {
-        firstIteration = false
-        current = m1.states(current) match {
-          case M1.Character(_, to) =>
-            to
-          case M1.PlusMinus(plus, minus) =>
-            reachableFrom(current).apply(to) match {
-              case Plus =>
-                path += Plus
-                plus
-              case Minus =>
-                path += Minus
-                minus
-              case c =>
-                val msg = s"shortestPath($from, $to): invalid transition $c out of $current"
-                throw new IllegalStateException(msg)
-            }
-          case (M1.GroupStart(groupIdx, to)) =>
-            path += GroupMarker(true, groupIdx)
-            to
-          case (M1.GroupEnd(groupIdx, to)) =>
-            path += GroupMarker(false, groupIdx)
-            to
+    /** Find the shortest path between two different states */
+    def shortestEmptyPath(from: Int, to: Int): List[PathMarker] = {
+      var from1 = from
+      val path = List.newBuilder[M2.PathMarker]
+      while (from1 != to) {
+        val transition = reachableFrom(from1)(to)
+        path += transition
+        (m1.states(from1), transition) match {
+          case (M1.PlusMinus(plus, _), M2.Plus) => from1 = plus
+          case (M1.PlusMinus(_, minus), M2.Minus) => from1 = minus
+          case (M1.GroupStart(_, to), _: M2.GroupMarker) => from1 = to
+          case (M1.GroupEnd(_, to), _: M2.GroupMarker) => from1 = to
+          case _ => throw new IllegalStateException()
         }
       }
       path.result()
@@ -153,24 +137,28 @@ object M2 {
 
     val states = m1.states
       .collect {
+        case (from, M1.Character(c, to)) if preservedStates.contains(to) =>
+          from -> (c -> Map(to -> Nil))
         case (from, M1.Character(c, to)) =>
           val newTargets = reachableFrom(to)
             .view
             .filterKeys(preservedStates.contains(_))
-            .map { case (target, _) => target -> shortestGroupPath(from, target) }
+            .map { case (target, _) => target -> shortestEmptyPath(to, target) }
             .toMap
           from -> (c -> newTargets)
       }
       .toMap
 
-    M2(
-      states,
+    val initials: Map[Int, List[M2.PathMarker]] = if (preservedStates.contains(m1.initial)) {
+      Map(m1.initial -> Nil)
+    } else {
       reachableFrom(m1.initial)
         .view
         .filterKeys(preservedStates.contains(_))
-        .map { case (target, _) => target -> shortestGroupPath(m1.initial, target) }
-        .toMap,
-      m1.terminal
-    )
+        .map { case (target, _) => target -> shortestEmptyPath(m1.initial, target) }
+        .toMap
+    }
+
+    M2(states, initials, m1.terminal)
   }
 }

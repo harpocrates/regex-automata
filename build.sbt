@@ -15,3 +15,8 @@ lazy val root = (project in file("."))
     libraryDependencies += "org.scalatest" %% "scalatest" % "3.2.9" % Test,
     libraryDependencies += "org.ow2.asm" % "asm" % "9.2"
   )
+
+lazy val bench = (project in file("bench"))
+  .dependsOn(root)
+  .enablePlugins(JmhPlugin)
+
