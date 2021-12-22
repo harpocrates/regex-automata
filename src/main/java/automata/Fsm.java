@@ -17,7 +17,7 @@ public interface Fsm<Q, T> {
    *
    * @return starting state in the machine
    */
-  Q initial();
+  Set<Q> initials();
 
   /**
    * Accepting states
@@ -35,10 +35,9 @@ public interface Fsm<Q, T> {
     final Set<Q> states = new HashSet<Q>();
     final Stack<Q> toVisit = new Stack<Q>();
 
-    {
-      final var first = initial();
-      toVisit.push(first);
-      states.add(first);
+    for (Q initial : initials()) {
+      toVisit.push(initial);
+      states.add(initial);
     }
 
     while (!toVisit.empty()) {

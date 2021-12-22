@@ -16,15 +16,15 @@ final case class M4(
   states: Map[Int, Map[Set[Int], M4.Transition]],
   initial: Int,
   terminal: Int
-) extends Dfa[Int, Set[Int], JavaIterable[RegexMarker]] {
+) extends Dfa[Int, Set[Int], JavaIterable[GroupMarker]] {
 
   val accepting: JavaSet[Int] = JavaSet.of(terminal)
 
-  def transitionsMap(state: Int): JavaMap[Set[Int], Fsm.Transition[Int, JavaIterable[RegexMarker]]] =
+  def transitionsMap(state: Int): JavaMap[Set[Int], Fsm.Transition[Int, JavaIterable[GroupMarker]]] =
     states.get(state) match {
       case None => Collections.emptyMap()
       case Some(ts) =>
-        ts.view.toMap[Set[Int], Fsm.Transition[Int, JavaIterable[RegexMarker]]].asJava
+        ts.view.toMap[Set[Int], Fsm.Transition[Int, JavaIterable[GroupMarker]]].asJava
     }
 
   /** Generate the source-code for a valid DOT graph
@@ -33,17 +33,14 @@ final case class M4(
     */
   def graphVizSrc: String = {
 
-    def renderEdge(ks: Seq[Set[Int]], gs: List[M2.GroupMarker]) = {
+    def renderEdge(ks: Seq[Set[Int]], gs: List[GroupMarker]) = {
       val builder = new StringBuilder()
       builder ++= ks
         .map(k => s"${k.toList.sorted.mkString("{",",","}")}")
         .mkString(" ")
       if (gs.nonEmpty) {
         builder ++= " / "
-        for (g <- gs) {
-          builder += (if (g.isStart) 'S' else 'E')
-          builder ++= s"<sub>${g.groupIdx}</sub>"
-        }
+        for (g <- gs) builder ++= g.graphVizLabel
       }
       builder.result()
     }
@@ -73,7 +70,7 @@ final case class M4(
     .iterator
     .flatMap(_._2.iterator)
     .flatMap { case (_, M4.Transition(_, groups)) => groups.iterator }
-    .map(_.groupIdx)
+    .map(_.groupIndex)
     .maxOption
     .getOrElse(-1)
 
@@ -99,7 +96,7 @@ final case class M4(
         case None => return None // TODO: unreachable?
         case Some(M4.Transition(nextState, groups)) =>
           for (group <- groups) {
-            val idx = if (group.isStart) group.groupIdx * 2 else group.groupIdx * 2 + 1
+            val idx = if (group.isStart) group.groupIndex * 2 else group.groupIndex * 2 + 1
             captureGroups(idx) = strOffset
             if (printDebugInfo) System.err.println(s"[M4] capturing $group: groups($idx) = $strOffset")
           }
@@ -121,23 +118,17 @@ object M4 {
     */
   final case class Transition(
     to: Int,
-    groups: List[M2.GroupMarker]
-  ) extends Fsm.Transition[Int, JavaIterable[RegexMarker]] {
+    groups: List[GroupMarker]
+  ) extends Fsm.Transition[Int, JavaIterable[GroupMarker]] {
     def targetState = to
-    val annotation: JavaIterable[RegexMarker] = groups.view
-      .map[RegexMarker] {
-        case M2.GroupMarker(true, groupIdx) => new RegexMarker.GroupStart(groupIdx)
-        case M2.GroupMarker(false, groupIdx) => new RegexMarker.GroupEnd(groupIdx)
-      }
-      .asJava
+    val annotation: JavaIterable[GroupMarker] = groups.asJava
   }
 
-  def compareMarkers(m1: M2.PathMarker, m2: M2.PathMarker): Int = {
+  def compareMarkers(m1: PathMarker, m2: PathMarker): Int = {
     if (m1 == m2) 0
     else
       (m1, m2) match {
-        case (M2.Plus, M2.Minus) => -1
-        case (M2.Minus, M2.Plus) => 1
+        case (a1: AlternationMarker, a2: AlternationMarker) => a1.compareTo(a2)
         case _ => throw new IllegalStateException(s"Comparing in-comparable markers: $m1 and $m2")
       }
   }
@@ -149,7 +140,7 @@ object M4 {
     * @param path2 second path
     * @return -1 if path1 is greater, 1 if path2 is greater, 0 if the paths are equal
     */
-  def comparePaths(path1: List[M2.PathMarker], path2: List[M2.PathMarker]): Int = {
+  def comparePaths(path1: List[PathMarker], path2: List[PathMarker]): Int = {
     var p1 = path1
     var p2 = path2
     while (p1.nonEmpty && p2.nonEmpty) {
@@ -176,8 +167,8 @@ object M4 {
       .groupMap(_._1)(_._2)
 
     // Given outgoing transitions in M2, determine outgoing transitions in M4
-    def mapTransition(nextStates: Map[Int, List[M2.PathMarker]]): Map[Set[Int], M4.Transition] = {
-      val output = mutable.Map.empty[Set[Int], (Int, List[M2.PathMarker])]
+    def mapTransition(nextStates: Map[Int, List[PathMarker]]): Map[Set[Int], M4.Transition] = {
+      val output = mutable.Map.empty[Set[Int], (Int, List[PathMarker])]
 
       // We iterate through the current edges - M4 is just M2 with edges "filtered"
       for ((toState, viaPath) <- nextStates) {
@@ -195,7 +186,7 @@ object M4 {
       output
         .view
         .mapValues { case (to, markers) =>
-          Transition(to, markers.collect { case g: M2.GroupMarker => g })
+          Transition(to, markers.collect { case g: GroupMarker => g })
         }
         .toMap
     }

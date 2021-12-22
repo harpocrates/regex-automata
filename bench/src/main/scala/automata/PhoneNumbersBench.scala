@@ -72,7 +72,8 @@ class PhoneNumbersBench {
       var j = 1
       val matchCount = m.groupCount()
       while (j < matchCount) {
-        b.consume(m.group(j))
+        b.consume(m.start(j))
+        b.consume(m.end(j))
         j += 1
       }
 
@@ -89,7 +90,8 @@ class PhoneNumbersBench {
       var j = 0
       val matchCount = m.groupCount()
       while (j < matchCount) {
-        b.consume(m.group(j))
+        b.consume(m.start(j))
+        b.consume(m.end(j))
         j += 1
       }
 

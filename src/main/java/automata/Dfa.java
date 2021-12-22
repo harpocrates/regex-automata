@@ -14,6 +14,17 @@ import java.util.function.BiConsumer;
 public interface Dfa<Q, E, T> extends Fsm<Q, T> {
 
   /**
+   * Initial state
+   *
+   * @return starting state in the machine
+   */
+  Q initial();
+
+  default Set<Q> initials() {
+    return Set.of(initial());
+  }
+
+  /**
    * Look up the mapping of transitions from a certain state
    *
    * @param state state inside the DFA

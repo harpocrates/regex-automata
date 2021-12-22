@@ -5,12 +5,17 @@ import java.util.Map;
 import java.util.function.UnaryOperator;
 
 /**
- * Regex AST visitor which can be used to build up an M1 NFA.
+ * Regex AST visitor which can be used to build up the corresponding NFA.
  *
  * The choice of how to represent the NFA (eg. as an object graph or as a map
- * of states to transitions) is left abstract.
+ * of states to transitions) is left abstract. The visitor's output is a
+ * function from the desired target state to the initial state - it is
+ * necessary to emit a function since some regex AST node (eg. like
+ * repetition) may need to be re-materialized multiple times in the same NFA.
+ *
+ * @param <Q> states in the automata
  */
-abstract class M1NfaBuilder<Q> extends CodePointSetVisitor implements RegexVisitor<UnaryOperator<Q>, IntRangeSet> {
+abstract class RegexNfaBuilder<Q> extends CodePointSetVisitor implements RegexVisitor<UnaryOperator<Q>, IntRangeSet> {
 
   /**
    * Summon a fresh state identifier.

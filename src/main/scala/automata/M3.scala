@@ -12,14 +12,14 @@ import scala.jdk.CollectionConverters._
   * @param terminals terminal states
   */
 final case class M3(
-  states: Map[Set[Int], Map[Char, Set[Int]]],
+  states: Map[Set[Int], Map[CodeUnitTransition, Set[Int]]],
   initial: Set[Int],
   terminals: Set[Set[Int]]
-) extends Dfa[Set[Int], Character, Unit] {
+) extends Dfa[Set[Int], CodeUnitTransition, Unit] {
 
   val accepting: JavaSet[Set[Int]] = terminals.asJava
 
-  def transitionsMap(state: Set[Int]): JavaMap[Character, Fsm.Transition[Set[Int], Unit]] = {
+  def transitionsMap(state: Set[Int]): JavaMap[CodeUnitTransition, Fsm.Transition[Set[Int], Unit]] = {
 
     final class NoAnnotTrans(to: Set[Int]) extends Fsm.Transition[Set[Int], Unit] {
       def annotation = ()
@@ -30,8 +30,8 @@ final case class M3(
       case None => Collections.emptyMap()
       case Some(ts) =>
         ts.view
-          .map { case (k, v) => (Character.valueOf(k), new NoAnnotTrans(v)) }
-          .toMap[Character, Fsm.Transition[Set[Int], Unit]]
+          .mapValues(new NoAnnotTrans(_))
+          .toMap[CodeUnitTransition, Fsm.Transition[Set[Int], Unit]]
           .asJava
     }
   }
@@ -88,7 +88,9 @@ final case class M3(
       simulatedOff += 1
       pos -= 1
       val c = input.charAt(pos)
-      val transitions = states.getOrElse(currentState, Map.empty).get(c)
+      val transitions = states
+        .getOrElse(currentState, Map.empty)
+        .collectFirst { case (cs, v) if cs.codeUnitSet.contains(c) => v }
       transitions match {
         case None => return None
         case Some(nextState) => currentState = nextState
@@ -113,7 +115,9 @@ final case class M3(
     while (pos > 0) {
       pos -= 1
       val c = input.charAt(pos)
-      val transitions = states.getOrElse(currentState, Map.empty).get(c)
+      val transitions = states
+        .getOrElse(currentState, Map.empty)
+        .collectFirst { case (cs, v) if cs.codeUnitSet.contains(c) => v }
       transitions match {
         case None => return false
         case Some(nextState) => currentState = nextState
@@ -131,7 +135,7 @@ object M3 {
   def fromM2(m2: M2): M3 = {
 
     // Reversed edges from `m2` - looks up incoming edges to any state from `m2`
-    val reverseTransitions: Map[Int, Set[(Char, Int)]] = m2
+    val reverseTransitions: Map[Int, Set[(CodeUnitTransition, Int)]] = m2
       .states
       .toList
       .flatMap {
@@ -140,14 +144,12 @@ object M3 {
             to <- tos.keys
             c <- chars
           } yield to -> (c -> from)
-      //    val reversedTransition = c -> from
-      //    tos.keys.toList.map(_ -> reversedTransition)
       }
-      .toSet[(Int, (Char, Int))]
+      .toSet[(Int, (CodeUnitTransition, Int))]
       .groupMap(_._1)(_._2)
 
     val initial = Set(m2.terminal)
-    val states: mutable.Map[Set[Int], Map[Char, Set[Int]]] = mutable.Map.empty
+    val states: mutable.Map[Set[Int], Map[CodeUnitTransition, Set[Int]]] = mutable.Map.empty
     val toVisit: mutable.Set[Set[Int]] = mutable.Set(initial)
 
     while (toVisit.nonEmpty) {
@@ -155,7 +157,7 @@ object M3 {
       toVisit.remove(powerState)
 
       // Look up all the transitions from the constituent states
-      val transitions: Map[Char, Set[Int]] = powerState
+      val transitions: Map[CodeUnitTransition, Set[Int]] = powerState
         .flatMap(reverseTransitions.getOrElse(_, Set.empty))
         .groupMap(_._1)(_._2)
 

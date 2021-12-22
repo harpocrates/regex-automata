@@ -86,8 +86,8 @@ public final class CompiledDfaCodegen {
    */
   public static final <Q3, Q4> ClassWriter generateDfaPatternSubclass(
     String pattern,
-    Dfa<Q3, Character, ?> m3,
-    Dfa<Q4, Q3, Iterable<RegexMarker>> m4,
+    Dfa<Q3, CodeUnitTransition, ?> m3,
+    Dfa<Q4, Q3, Iterable<GroupMarker>> m4,
     int groupCount,
     String className,
     int classFlags,
@@ -252,7 +252,7 @@ public final class CompiledDfaCodegen {
    */
   private static <Q3> void generateBytecodeForM3Automata(
     MethodVisitor mv,
-    Dfa<Q3, Character, ?> m3,
+    Dfa<Q3, CodeUnitTransition, ?> m3,
     Map<Q3, Integer> m3StateIds,
     boolean printDebugInfo
   ) {
@@ -337,16 +337,23 @@ public final class CompiledDfaCodegen {
       mv.visitVarInsn(Opcodes.ILOAD, offsetVar);
       CHARAT_M.invokeMethod(mv, CHARSEQUENCE_CLASS_NAME);
 
-      final var transitions = new TreeMap<Character, Dfa.Transition<Q3, ?>>(m3.transitionsMap(state));
+      // TODO: compile ranges more effectively
+      final var transitions = new TreeMap<Integer, Q3>();
+      for (var transition : m3.transitionsMap(state).entrySet()) {
+        for (var codeUnit : transition.getKey().codeUnitSet()) {
+          transitions.put(codeUnit, transition.getValue().targetState());
+        }
+      }
+      
       final int[] charValues = transitions
         .keySet()
         .stream()
-        .mapToInt((c) -> c.charValue())
+        .mapToInt((Integer c) -> c.intValue())
         .toArray();
       final Label[] stateLabels = transitions
         .values()
         .stream()
-        .map((transition) -> q3States.get(transition.targetState()))
+        .map((Q3 targetState) -> q3States.get(targetState))
         .toArray(Label[]::new);
       makeBranch(
         mv,
@@ -418,7 +425,7 @@ public final class CompiledDfaCodegen {
    */
   private static <Q3, Q4> void generateBytecodeForM4Automata(
     MethodVisitor mv,
-    Dfa<Q4, Q3, Iterable<RegexMarker>> m4,
+    Dfa<Q4, Q3, Iterable<GroupMarker>> m4,
     int groupCount,
     Map<Q3, Integer> m3StateIds,
     boolean printDebugInfo
@@ -504,14 +511,14 @@ public final class CompiledDfaCodegen {
        *     Elements whose group had an empty sequence jump straight to their
        *     the next state
        */
-      final Map<SimpleEntry<Q4, List<RegexMarker>>, Label> groupedMarkerTransitions =
-        new HashMap<SimpleEntry<Q4, List<RegexMarker>>, Label>();
+      final Map<SimpleEntry<Q4, List<GroupMarker>>, Label> groupedMarkerTransitions =
+        new HashMap<SimpleEntry<Q4, List<GroupMarker>>, Label>();
       final SortedMap<Integer, Label> q3StateIdTargets =
         new TreeMap<Integer, Label>();
       for (var transitionEntry : m4.transitionsMap(state).entrySet()) {
         final Q4 q4Target = transitionEntry.getValue().targetState();
         final Q3 q3State = transitionEntry.getKey();
-        final List<RegexMarker> markersList = StreamSupport
+        final List<GroupMarker> markersList = StreamSupport
           .stream(transitionEntry.getValue().annotation().spliterator(), false)
           .collect(Collectors.toList());
 
@@ -552,18 +559,11 @@ public final class CompiledDfaCodegen {
       for (var grouped : groupedMarkerTransitions.entrySet()) {
         final Label groupLabel = grouped.getValue();
         final Q4 nextState = grouped.getKey().getKey();
-        final List<RegexMarker> markers = grouped.getKey().getValue();
+        final List<GroupMarker> markers = grouped.getKey().getValue();
 
         mv.visitLabel(groupLabel);
-        for (RegexMarker marker : markers) {
-          int groupOff = -1;
-          if (marker instanceof RegexMarker.GroupStart) {
-            groupOff = ((RegexMarker.GroupStart) marker).groupIndex() * 2;
-          } else if (marker instanceof RegexMarker.GroupEnd) {
-            groupOff = ((RegexMarker.GroupEnd) marker).groupIndex() * 2 + 1;
-          } else {
-            throw new RuntimeException("Unhandled marker " + marker);
-          }
+        for (GroupMarker marker : markers) {
+          final int groupOff = marker.groupIndex() * 2 + (marker.isStart() ? 0 : 1);
 
           if (printDebugInfo) {
             final var message = "[M4] capturing " + marker + ": groups[" + groupOff + "] = ";
