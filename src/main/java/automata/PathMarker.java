@@ -5,8 +5,4 @@ package automata;
  *
  * TODO make this sealed an `permits GroupMarker, AlternationMarker`
  */
-public interface PathMarker extends M1Transition {
-
-  /** Label for the marker. */
-  public abstract String graphVizLabel();
-}
+public interface PathMarker extends M1Transition { }

@@ -13,7 +13,7 @@ import org.openjdk.jmh.infra.Blackhole
 @Fork(10)
 class PhoneNumbersBench {
 
-  val phoneRe = raw"(?:\+?(\d\d?\d?))?[-. (]*(\d\d\d)[-. )]*(\d\d\d)[-. ]*(\d\d\d\d)(?: *x(\d+))?"
+  val phoneRe = raw"(?:\+?(\d{1,3}))?[-. (]*(\d{3})[-. )]*(\d{3})[-. ]*(\d{4})(?: *x(\d+))?"
   val phoneReNoCap = raw"(?:\+?(?:\d{1,3}))?[-. (?:]*(?:\d{3})[-. )]*(?:\d{3})[-. ]*(?:\d{4})(?: *x(?:\d+))?"
   val shouldMatch = List(
     "18005551234" -> List("1", "800", "555", "1234", null),

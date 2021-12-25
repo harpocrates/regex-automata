@@ -17,7 +17,7 @@ public enum AlternationMarker implements PathMarker {
   /** Alternative to try first. */
   PLUS {
     @Override
-    public String graphVizLabel() {
+    public String dotLabel() {
       return "+";
     }
   },
@@ -25,8 +25,8 @@ public enum AlternationMarker implements PathMarker {
   /** Alternative to try second. */
   MINUS {
     @Override
-    public String graphVizLabel() {
-      return "-";
+    public String dotLabel() {
+      return "&minus;";
     }
   };
 }

@@ -2,7 +2,6 @@ package automata
 
 // Follow https://www.labs.hpe.com/techreports/2012/HPL-2012-41R1.pdf
 import scala.jdk.CollectionConverters._
-import scala.collection.mutable
 import java.util.{Collections, Set => JavaSet, Map => JavaMap}
 
 /** NFA corresponding to regex
@@ -23,21 +22,22 @@ final case class M1[Q](
 
   override def accepting: JavaSet[Q] = JavaSet.of(terminal)
 
-  override def allStates: JavaSet[Q] = states.keySet.asJava
+  override def allStates: JavaSet[Q] = states.keySet.union(Set(initial, terminal)).asJava
 
-  override def transitionsMap(state: Q): JavaMap[M1Transition, Fsm.Transition[Q, Unit]] = {
+  override def transitionsMap(state: Q): JavaMap[M1Transition, Fsm.Transition[Q, M1Transition, Unit]] = {
 
-    final class NoAnnotTrans[Q](to: Q) extends Fsm.Transition[Q, Unit] {
+    final class NoAnnotTrans[Q](to: Q) extends Fsm.Transition[Q, M1Transition, Unit] {
       def annotation = ()
       def targetState = to
+      def dotLabel(from: Q, over: M1Transition) = over.dotLabel
     }
 
     states.get(state) match {
       case None => Collections.emptyMap()
-      
+
       case Some(M1.Character(transitions, to)) =>
         val toTrans = new NoAnnotTrans(to)
-        transitions.map(_ -> toTrans).toMap[M1Transition, Fsm.Transition[Q, Unit]].asJava
+        transitions.map(_ -> toTrans).toMap[M1Transition, Fsm.Transition[Q, M1Transition, Unit]].asJava
 
       case Some(M1.PlusMinus(plus, minus)) =>
         val plusTrans = new NoAnnotTrans(plus)
@@ -50,37 +50,6 @@ final case class M1[Q](
       case Some(M1.GroupEnd(idx, to)) =>
         JavaMap.of(GroupMarker.end(idx), new NoAnnotTrans(to))
     }
-  }
-
-  /** Generate the source-code for a valid DOT graph
-    *
-    * Compile the `.dot` file using `dot -Tsvg m1.dot > m1.svg`
-    */
-  def graphVizSrc: String = {
-    val builder = new StringBuilder()
-    builder ++= s"digraph m1 {\n"
-    builder ++= s"  rankdir = LR;\n"
-    builder ++= s"  node [shape = doublecircle, label = \"\\N\"]; $terminal;\n"
-    builder ++= s"  node [shape = none, label = \"\"]; \"init\";\n"
-    builder ++= s"  node [shape = circle, label = \"\\N\"];\n"
-    builder ++= s"  \"init\" -> \"$initial\";\n"
-
-    for ((from, transition) <- states) {
-      transition match {
-        case M1.Character(c, to) =>
-          builder ++= s"  \"$from\" -> \"$to\" [label=\"$c\"];\n"
-        case M1.PlusMinus(plus, minus) =>
-          builder ++= s"  \"$from\" -> \"$plus\" [label=\"+\"];\n"
-          builder ++= s"  \"$from\" -> \"$minus\" [label=\"-\"];\n"
-        case M1.GroupStart(groupIdx, to) =>
-          builder ++= s"  \"$from\" -> \"$to\" [label=<S<sub>$groupIdx</sub>>];\n"
-        case M1.GroupEnd(groupIdx, to) =>
-          builder ++= s"  \"$from\" -> \"$to\" [label=<E<sub>$groupIdx</sub>>];\n"
-      }
-    }
-
-    builder ++= s"}"
-    builder.result()
   }
 
   /** Compute the sequence of group tags obtained from searching from `from` to
@@ -144,23 +113,23 @@ object M1 {
     * @param re regex to convert
     * @return equivalent NFA
     */
-  def fromRe(re: Re): M1[Int] = {
+  def fromRe(re: Re): M1[Integer] = {
 
     var nextState: Int = 1
-    def freshState(): Int = {
+    def freshState(): Integer = {
       val s = nextState
       nextState += 1
-      s
+      Integer.valueOf(s)
     }
 
-    val states = Map.newBuilder[Int, M1.Transition[Int]]
+    val states = Map.newBuilder[Integer, M1.Transition[Integer]]
 
     /** @param re regex
       * @param to state at which to end
       * @param desugarCharClassIntoUnion expand a character class into a union (for debugging)
       * @return state at which the regex starts
       */
-    def convert(re: Re, to: Int, desugarCharClassIntoUnion: Boolean = false): Int =
+    def convert(re: Re, to: Integer, desugarCharClassIntoUnion: Boolean = false): Integer =
       re match {
         case Re.Epsilon =>
           to
@@ -178,8 +147,8 @@ object M1 {
             charList match {
               case Nil => ()
               case ch :: chs =>
-                states += from -> chs.foldLeft[Transition[Int]](M1.Character(List(CodeUnitTransition.ofChar(ch)), to)) {
-                  (acc: Transition[Int], c: Char) =>
+                states += from -> chs.foldLeft[Transition[Integer]](M1.Character(List(CodeUnitTransition.ofChar(ch)), to)) {
+                  (acc: Transition[Integer], c: Char) =>
                     val accFrom = freshState()
                     val cFrom = freshState()
                     states += accFrom -> acc
@@ -188,7 +157,7 @@ object M1 {
                 }
             }
           } else {
-            states += from -> M1.Character(charList.map(CodeUnitTransition.ofChar(_)), to)
+            states += Integer.valueOf(from) -> M1.Character(charList.map(CodeUnitTransition.ofChar(_)), to)
           }
           from
 

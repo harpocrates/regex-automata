@@ -87,7 +87,7 @@ public interface DfaPattern {
   final static public class InterpretableDfaPattern implements DfaPattern {
     public final String pattern;
     public final Re parsed;
-    public final M1 m1;
+    public final M1<Integer> m1;
     public final M2 m2;
     public final M3 m3;
     public final M4 m4;

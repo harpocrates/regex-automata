@@ -11,7 +11,7 @@ import java.util.function.BiConsumer;
  * @param <E> input symbol alphabet
  * @param <T> annotations on transitions
  */
-public interface Dfa<Q, E, T> extends Fsm<Q, T> {
+public interface Dfa<Q, E, T> extends Fsm<Q, E, T> {
 
   /**
    * Initial state
@@ -30,10 +30,10 @@ public interface Dfa<Q, E, T> extends Fsm<Q, T> {
    * @param state state inside the DFA
    * @return map of alphabet symbols to transitions
    */
-  Map<E, Transition<Q, T>> transitionsMap(Q state);
+  Map<E, Transition<Q, E, T>> transitionsMap(Q state);
 
-  default Collection<Transition<Q, T>> transitions(Q state) {
-    return transitionsMap(state).values();
+  default Collection<Map.Entry<E, Transition<Q, E, T>>> transitions(Q state) {
+    return transitionsMap(state).entrySet();
   }
 
   /**
@@ -58,7 +58,7 @@ public interface Dfa<Q, E, T> extends Fsm<Q, T> {
 
     while (input.hasNext()) {
       final E e = input.next();
-      final Transition<Q, T> transition = dfa.transitionsMap(currentState).get(e);
+      final Transition<Q, E, T> transition = dfa.transitionsMap(currentState).get(e);
 
       // No transition found
       if (transition == null) {

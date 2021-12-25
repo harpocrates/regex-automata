@@ -1,5 +1,7 @@
 package automata;
 
+import java.util.stream.Collectors;
+
 /**
  * Marker for the start or end of a capture group.
  *
@@ -12,8 +14,13 @@ public record GroupMarker(
 ) implements PathMarker {
 
   @Override
-  public String graphVizLabel() {
-    return String.format("%c<SUB>%d</SUB>", isStart ? 'S' : 'E', groupIndex);
+  public String dotLabel() {
+    // Note: uses unicode subscripts because they render more nicely
+    return String
+      .format("<i>%c%d</i>", isStart ? 'S' : 'E', groupIndex)
+      .chars()
+      .mapToObj((int c) -> Character.toString((Character.isDigit(c) ? c - '0' + '₀' : c)))
+      .collect(Collectors.joining(""));
   }
 
   public static GroupMarker start(int groupIndex) {

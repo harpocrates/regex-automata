@@ -1,8 +1,9 @@
 package automata
 
 import scala.collection.mutable
-import java.util.{Map => JavaMap, Set => JavaSet, Collections}
+import java.util.{AbstractMap, Map => JavaMap, Set => JavaSet, Collections}
 import scala.jdk.CollectionConverters._
+import java.util.stream.{Collector, Collectors}
 
 /** DFA obtained from a powerset construction on a reversed M2 NFA
   *
@@ -12,18 +13,19 @@ import scala.jdk.CollectionConverters._
   * @param terminals terminal states
   */
 final case class M3(
-  states: Map[Set[Int], Map[CodeUnitTransition, Set[Int]]],
-  initial: Set[Int],
-  terminals: Set[Set[Int]]
-) extends Dfa[Set[Int], CodeUnitTransition, Unit] {
+  states: Map[IntSet, Map[CodeUnitTransition, IntSet]],
+  initial: IntSet,
+  terminals: Set[IntSet]
+) extends Dfa[IntSet, CodeUnitTransition, Unit] {
 
-  val accepting: JavaSet[Set[Int]] = terminals.asJava
+  val accepting: JavaSet[IntSet] = terminals.asJava
 
-  def transitionsMap(state: Set[Int]): JavaMap[CodeUnitTransition, Fsm.Transition[Set[Int], Unit]] = {
+  def transitionsMap(state: IntSet): JavaMap[CodeUnitTransition, Fsm.Transition[IntSet, CodeUnitTransition, Unit]] = {
 
-    final class NoAnnotTrans(to: Set[Int]) extends Fsm.Transition[Set[Int], Unit] {
+    final class NoAnnotTrans(to: IntSet) extends Fsm.Transition[IntSet, CodeUnitTransition, Unit] {
       def annotation = ()
       def targetState = to
+      def dotLabel(from: IntSet, over: CodeUnitTransition) = over.dotLabel
     }
 
     states.get(state) match {
@@ -31,7 +33,7 @@ final case class M3(
       case Some(ts) =>
         ts.view
           .mapValues(new NoAnnotTrans(_))
-          .toMap[CodeUnitTransition, Fsm.Transition[Set[Int], Unit]]
+          .toMap[CodeUnitTransition, Fsm.Transition[IntSet, CodeUnitTransition, Unit]]
           .asJava
     }
   }
@@ -40,48 +42,23 @@ final case class M3(
     *
     * In the worst case, this is exactly the powerset
     */
-  def nonEmptyPowerStates: Set[Set[Int]] =
+  def nonEmptyPowerStates: Set[IntSet] =
     states
       .keySet
       .union(terminals)
       .+(initial)
       .toSet
 
-  /** Generate the source-code for a valid DOT graph
-    *
-    * Compile the `.dot` file using `dot -Tsvg m3.dot > m3.svg`
-    */
-  def graphVizSrc: String = {
-
-    def renderSet(k: Set[Int]): String = k.toList.sorted.mkString("{",",","}")
-
-    val builder = new StringBuilder()
-    builder ++= s"digraph m3 {\n"
-    builder ++= s"  rankdir = LR;\n"
-    builder ++= s"  node [shape = doublecircle, label = \"\\N\"]; ${terminals.map(t => s"\"${renderSet(t)}\"").mkString(" ")};\n"
-    builder ++= s"  node [shape = none, label = \"\"]; \"init\";\n"
-    builder ++= s"  node [shape = circle, label = \"\\N\"];\n"
-
-    builder ++= s"  \"init\" -> \"${renderSet(initial)}\";\n"
-
-    for ((from, transitions) <- states; (c, to) <- transitions) {
-      builder ++= s"  \"${renderSet(from)}\" -> \"${renderSet(to)}\" [label=\"$c\"];\n"
-    }
-
-    builder ++= s"}"
-    builder.result()
-  }
-
   /** Run a regex on an input
     *
     * @param input input string, must contain only characters from the BMP (no surrogates)
     * @return the array of states if it matched (in the order seen)
     */
-  def captureSimulate(input: CharSequence): Option[Array[Set[Int]]] = {
-    var currentState: Set[Int] = initial
+  def captureSimulate(input: CharSequence): Option[Array[IntSet]] = {
+    var currentState: IntSet = initial
     var pos: Int = input.length
     var simulatedOff: Int = 0
-    val simulated = new Array[Set[Int]](input.length + 1)
+    val simulated = new Array[IntSet](input.length + 1)
 
     while (pos > 0) {
       simulated(simulatedOff) = currentState
@@ -109,7 +86,7 @@ final case class M3(
     * @return whether the input matches
     */
   def checkSimulate(input: CharSequence): Boolean = {
-    var currentState: Set[Int] = initial
+    var currentState: IntSet = initial
     var pos: Int = input.length
 
     while (pos > 0) {
@@ -135,7 +112,7 @@ object M3 {
   def fromM2(m2: M2): M3 = {
 
     // Reversed edges from `m2` - looks up incoming edges to any state from `m2`
-    val reverseTransitions: Map[Int, Set[(CodeUnitTransition, Int)]] = m2
+    val reverseTransitions: Map[Integer, Set[(CodeUnitTransition, Integer)]] = m2
       .states
       .toList
       .flatMap {
@@ -145,21 +122,28 @@ object M3 {
             c <- chars
           } yield to -> (c -> from)
       }
-      .toSet[(Int, (CodeUnitTransition, Int))]
+      .toSet[(Integer, (CodeUnitTransition, Integer))]
       .groupMap(_._1)(_._2)
 
-    val initial = Set(m2.terminal)
-    val states: mutable.Map[Set[Int], Map[CodeUnitTransition, Set[Int]]] = mutable.Map.empty
-    val toVisit: mutable.Set[Set[Int]] = mutable.Set(initial)
+    val initial = IntSet.of(m2.terminal)
+    val states: mutable.Map[IntSet, Map[CodeUnitTransition, IntSet]] = mutable.Map.empty
+    val toVisit: mutable.Set[IntSet] = mutable.Set(initial)
 
     while (toVisit.nonEmpty) {
-      val powerState: Set[Int] = toVisit.head
+      val powerState: IntSet = toVisit.head
       toVisit.remove(powerState)
 
       // Look up all the transitions from the constituent states
-      val transitions: Map[CodeUnitTransition, Set[Int]] = powerState
+      val transitions: Map[CodeUnitTransition, IntSet] = powerState
+        .stream
+        .boxed
+        .collect(Collectors.toSet[Integer])
+        .asScala
         .flatMap(reverseTransitions.getOrElse(_, Set.empty))
         .groupMap(_._1)(_._2)
+        .view
+        .mapValues(ints => new IntSet(ints.asJava))
+        .toMap
 
       states += powerState -> transitions
 
@@ -168,9 +152,9 @@ object M3 {
       }
     }
 
-    val terminals: Set[Set[Int]] = states
+    val terminals: Set[IntSet] = states
       .keys
-      .filter(key => key.intersect(m2.initial.keySet).nonEmpty)
+      .filter(key => key.stream.anyMatch(m2.initial.keySet.contains(_)))
       .toSet
 
     M3(

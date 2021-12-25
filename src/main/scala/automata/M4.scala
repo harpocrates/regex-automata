@@ -13,57 +13,19 @@ import scala.jdk.CollectionConverters._
   * @param terminals terminal states
   */
 final case class M4(
-  states: Map[Int, Map[Set[Int], M4.Transition]],
+  states: Map[Int, Map[IntSet, M4.Transition]],
   initial: Int,
   terminal: Int
-) extends Dfa[Int, Set[Int], JavaIterable[GroupMarker]] {
+) extends Dfa[Int, IntSet, JavaIterable[GroupMarker]] {
 
   val accepting: JavaSet[Int] = JavaSet.of(terminal)
 
-  def transitionsMap(state: Int): JavaMap[Set[Int], Fsm.Transition[Int, JavaIterable[GroupMarker]]] =
+  def transitionsMap(state: Int): JavaMap[IntSet, Fsm.Transition[Int, IntSet, JavaIterable[GroupMarker]]] =
     states.get(state) match {
       case None => Collections.emptyMap()
       case Some(ts) =>
-        ts.view.toMap[Set[Int], Fsm.Transition[Int, JavaIterable[GroupMarker]]].asJava
+        ts.view.toMap[IntSet, Fsm.Transition[Int, IntSet, JavaIterable[GroupMarker]]].asJava
     }
-
-  /** Generate the source-code for a valid DOT graph
-    *
-    * Compile the `.dot` file using `dot -Tsvg m4.dot > m4.svg`
-    */
-  def graphVizSrc: String = {
-
-    def renderEdge(ks: Seq[Set[Int]], gs: List[GroupMarker]) = {
-      val builder = new StringBuilder()
-      builder ++= ks
-        .map(k => s"${k.toList.sorted.mkString("{",",","}")}")
-        .mkString(" ")
-      if (gs.nonEmpty) {
-        builder ++= " / "
-        for (g <- gs) builder ++= g.graphVizLabel
-      }
-      builder.result()
-    }
-
-    val builder = new StringBuilder()
-    builder ++= s"digraph m3 {\n"
-    builder ++= s"  rankdir = LR;\n"
-    builder ++= s"  node [shape = doublecircle, label = \"\\N\"]; \"$terminal\";\n"
-    builder ++= s"  node [shape = none, label = \"\"]; \"init\";\n"
-    builder ++= s"  node [shape = circle, label = \"\\N\"];\n"
-
-    builder ++= s"  \"init\" -> \"$initial\";\n"
-
-    for {
-      (from, transitions) <- states
-      (M4.Transition(to, gs), keys) <- transitions.toList.groupMap(_._2)(_._1)
-    } {
-      builder ++= s"  \"$from\" -> \"$to\" [label=<${renderEdge(keys, gs)}>];\n"
-    }
-
-    builder ++= s"}"
-    builder.result()
-  }
 
   /** Count the number of groups */
   def groupCount: Int = 1 + states
@@ -81,7 +43,7 @@ final case class M4(
     * @param printDebugInfo print to STDERR a trace of what is happening
     * @return array of match results
     */
-  def simulate(input: CharSequence, m3Path: Array[Set[Int]], printDebugInfo: Boolean): Option[ArrayMatchResult] = {
+  def simulate(input: CharSequence, m3Path: Array[IntSet], printDebugInfo: Boolean): Option[ArrayMatchResult] = {
     var currentState = initial
     var pos = m3Path.length - 1
     var strOffset = 0
@@ -119,9 +81,13 @@ object M4 {
   final case class Transition(
     to: Int,
     groups: List[GroupMarker]
-  ) extends Fsm.Transition[Int, JavaIterable[GroupMarker]] {
+  ) extends Fsm.Transition[Int, IntSet, JavaIterable[GroupMarker]] {
     def targetState = to
     val annotation: JavaIterable[GroupMarker] = groups.asJava
+    def dotLabel(from: Int, transition: IntSet): String = {
+      val groupsString = if (groups.isEmpty) "" else " / " + groups.map(_.dotLabel).mkString
+      transition.toString + groupsString
+    }
   }
 
   def compareMarkers(m1: PathMarker, m2: PathMarker): Int = {
@@ -161,14 +127,18 @@ object M4 {
   def fromM2M3(m2: M2, m3: M3): M4 = {
 
     // Mapping from states in M2 to states in M3 containing the M2 state
-    val stateToPowerState: Map[Int, Set[Set[Int]]] = m3
+    val stateToPowerState: Map[Integer, Set[IntSet]] = m3
       .nonEmptyPowerStates
-      .flatMap { powerState => powerState.map(_ -> powerState) }
+      .flatMap { powerState =>
+        val builder = Set.newBuilder[Integer]
+        powerState.stream.boxed.forEach(builder += _)
+        builder.result().map(_ -> powerState)
+      }
       .groupMap(_._1)(_._2)
 
     // Given outgoing transitions in M2, determine outgoing transitions in M4
-    def mapTransition(nextStates: Map[Int, List[PathMarker]]): Map[Set[Int], M4.Transition] = {
-      val output = mutable.Map.empty[Set[Int], (Int, List[PathMarker])]
+    def mapTransition(nextStates: Map[Integer, List[PathMarker]]): Map[IntSet, M4.Transition] = {
+      val output = mutable.Map.empty[IntSet, (Integer, List[PathMarker])]
 
       // We iterate through the current edges - M4 is just M2 with edges "filtered"
       for ((toState, viaPath) <- nextStates) {
@@ -191,7 +161,7 @@ object M4 {
         .toMap
     }
 
-    val states = mutable.Map.empty[Int, Map[Set[Int], M4.Transition]]
+    val states = mutable.Map.empty[Int, Map[IntSet, M4.Transition]]
     val toVisit = mutable.Set.empty[Int]
     val initial = 0
     toVisit += initial
