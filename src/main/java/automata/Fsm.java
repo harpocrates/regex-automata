@@ -98,7 +98,7 @@ public interface Fsm<Q, E, T> {
    */
   default String dotGraphSource(String graphName) {
     final var builder = new StringBuilder();
-    builder.append("digraph " + graphName + "{\n");
+    builder.append("digraph " + graphName + " {\n");
     builder.append("  rankdir = LR;\n");
 
     // Terminal states
