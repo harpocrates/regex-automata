@@ -344,7 +344,7 @@ public final class CompiledDfaCodegen {
           transitions.put(codeUnit, transition.getValue().targetState());
         }
       }
-      
+
       final int[] charValues = transitions
         .keySet()
         .stream()

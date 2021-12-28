@@ -1,5 +1,6 @@
 package automata;
 
+import java.text.ParseException;
 import java.lang.invoke.MethodHandles;
 import java.lang.reflect.InvocationTargetException;
 import org.objectweb.asm.Opcodes;
@@ -16,11 +17,11 @@ public interface DfaPattern {
    * @return compiled DFA pattern
    */
   public static DfaPattern compile(String regex)
-  throws java.io.IOException, IllegalAccessException, NoSuchMethodException, InstantiationException, InvocationTargetException {
-    final var m1 = M1.fromRe(Re.parse(regex));
-    final var m2 = M2.fromM1(m1);
-    final var m3 = M3.fromM2(m2);
-    final var m4 = M4.fromM2M3(m2, m3);
+  throws java.io.IOException, ParseException, IllegalAccessException, NoSuchMethodException, InstantiationException, InvocationTargetException {
+    final var m1 = M1Dfa.parse(regex);
+    final var m2 = M2Nfa.fromM1(m1);
+    final var m3 = M3Dfa.fromM2(m2);
+    final var m4 = M4Dfa.fromM2M3(m2, m3);
 
     final String className = "automata/DfaPattern$Compiled";
     final boolean debugInfo = false;
@@ -57,7 +58,7 @@ public interface DfaPattern {
    * @param regex source of the pattern
    * @return compiled DFA pattern
    */
-  public static InterpretableDfaPattern interpreted(String regex) {
+  public static InterpretableDfaPattern interpreted(String regex) throws ParseException {
     return new InterpretableDfaPattern(regex);
   }
 
@@ -86,34 +87,40 @@ public interface DfaPattern {
 
   final static public class InterpretableDfaPattern implements DfaPattern {
     public final String pattern;
-    public final Re parsed;
-    public final M1<Integer> m1;
-    public final M2 m2;
-    public final M3 m3;
-    public final M4 m4;
+    private final boolean printDebugInfo;
+
+    // Intermediate states
+    public final M1Dfa m1;
+    public final M2Nfa m2;
+    public final M3Dfa m3;
+    public final M4Dfa m4;
+
 
     public String pattern() {
       return pattern;
     }
 
     public boolean checkMatch(CharSequence input) {
-      return m3.checkSimulate(input);
+      return m3.checkSimulate(input, printDebugInfo);
     }
 
     public ArrayMatchResult captureMatch(CharSequence input) {
-      var m3Path = m3.captureSimulate(input);
-      if (m3Path.isEmpty()) return null;
-      var result = m4.simulate(input.toString(), m3Path.get(), false);
-      return (result.isEmpty()) ? null : result.get();
+      final String inputStr = input.toString();
+      var m3Path = m3.captureSimulate(inputStr, printDebugInfo);
+      return m3Path == null ? null : m4.simulate(inputStr, m3Path, printDebugInfo);
     }
 
-    public InterpretableDfaPattern(String pattern) {
+    public InterpretableDfaPattern(String pattern, boolean printDebugInfo) throws ParseException {
       this.pattern = pattern;
-      this.parsed = Re.parse(pattern);
-      this.m1 = M1.fromRe(this.parsed);
-      this.m2 = M2.fromM1(this.m1);
-      this.m3 = M3.fromM2(this.m2);
-      this.m4 = M4.fromM2M3(this.m2, this.m3);
+      this.printDebugInfo = printDebugInfo;
+      this.m1 = M1Dfa.parse(this.pattern);
+      this.m2 = M2Nfa.fromM1(this.m1);
+      this.m3 = M3Dfa.fromM2(this.m2);
+      this.m4 = M4Dfa.fromM2M3(this.m2, this.m3);
+    }
+
+    public InterpretableDfaPattern(String pattern) throws ParseException {
+      this(pattern, false);
     }
 
     @Override

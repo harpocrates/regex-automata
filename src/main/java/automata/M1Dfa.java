@@ -1,54 +1,37 @@
 package automata;
 
-import static automata.M2Nfa.EmptyPath;
-import java.util.List;
-import java.util.LinkedList;
-import java.util.Map;
-import java.util.SortedMap;
-import java.util.LinkedHashMap;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Set;
-import java.util.Stack;
-import java.util.Collections;
-import java.util.Arrays;
+import static java.util.AbstractMap.SimpleImmutableEntry;
+
+import java.util.*;
 import java.util.function.UnaryOperator;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
 import java.util.stream.Collectors;
-import static java.util.AbstractMap.SimpleImmutableEntry;
 import java.text.ParseException;
 
-/* Notes:
- *
- *  - the FSM is not necessarily a connected graph. It is possible to construct a character class
- *    that is empty: "a[b&&c]d" (no character can be `b` and `c` at the same time).
- *
- */
-public class M1Dfa implements Dfa<Integer, M1Transition, Void> {
-
-  private record TransitionTarget(int to) implements Fsm.Transition<Integer, M1Transition, Void> {
-    @Override
-    public Void annotation() {
-      return null;
-    }
-
-    @Override
-    public Integer targetState() {
-      return to;
-    }
-
-    @Override
-    public String dotLabel(Integer from, M1Transition over) {
-      return over.dotLabel();
-    }
-  }
+final public class M1Dfa implements DotGraph<Integer, M1Transition> {
 
   /**
-   * States are numbered using consecutive indices, so we can use an array to
-   * compactly track the list of transitions out of every state.
+   * State transitions, indexed along all of the starting nodes.
+   *
+   * This list is not modifiable and should support fast random access. The
+   * inner maps are also not modifiable and they will fit one of the following
+   * profiles:
+   *
+   *   - all keys are {@code CodeUnitTransition}
+   *
+   *   - keys are the two {@code AlternationMarker}, and the minus shows up
+   *     before the plus in the entry set
+   *
+   *   - key is a single {@code GroupMarker}
+   *
+   * Not all states may be reachable (the finite-state machine graph is not
+   * necessarily connected). As an example, the graph corresponding to the
+   * regular expression {@code a[b&&c]d} will have no connection from {@code a}
+   * to {@code d} (since the code point set associated with {@code [b&&c]} is
+   * empty).
    */
-  private final Map<M1Transition, TransitionTarget>[] states;
+  public final List<Map<M1Transition, Integer>> states;
 
   /**
    * Index of the initial state inside {@code states}.
@@ -60,23 +43,14 @@ public class M1Dfa implements Dfa<Integer, M1Transition, Void> {
    */
   public final int finalState;
 
-  /**
-   * Cached (unmodifiable) set of all of the keys.
-   */
-  private final Set<Integer> allStates;
-
   private M1Dfa(
-    Map<M1Transition, TransitionTarget>[] states,
+    List<Map<M1Transition, Integer>> states,
     int initialState,
     int finalState
   ) {
     this.states = states;
     this.initialState = initialState;
     this.finalState = finalState;
-
-    this.allStates = Collections.unmodifiableSet(
-      IntStream.range(0, states.length).boxed().collect(Collectors.toSet())
-    );
   }
 
   public static M1Dfa parse(String pattern) throws ParseException {
@@ -141,8 +115,10 @@ public class M1Dfa implements Dfa<Integer, M1Transition, Void> {
 
       // Initialize the states array to the right length
       @SuppressWarnings({"unchecked"})
-      final Map<M1Transition, TransitionTarget>[] states = (Map<M1Transition, TransitionTarget>[]) new Map[lastState];
-      Arrays.setAll(states, i -> new LinkedHashMap<M1Transition, TransitionTarget>());
+      final var states = IntStream
+        .range(0, lastState)
+        .<Map<M1Transition, Integer>>mapToObj(i -> new LinkedHashMap<M1Transition, Integer>())
+        .collect(Collectors.toCollection(ArrayList::new));
 
       // Extract out an identity mapping of all code unit sets from code unit transitions
       final Map<IntRangeSet, IntRangeSet> identityCodeTransitions = new HashMap<IntRangeSet, IntRangeSet>();
@@ -150,7 +126,9 @@ public class M1Dfa implements Dfa<Integer, M1Transition, Void> {
         if (buffered.transition instanceof CodeUnitTransition trans) {
            identityCodeTransitions.put(trans.codeUnitSet(), trans.codeUnitSet());
         } else {
-           states[buffered.from].put(buffered.transition, new TransitionTarget(buffered.to));
+           states
+             .get(buffered.from)
+             .put(buffered.transition, buffered.to);
         }
       }
 
@@ -175,62 +153,46 @@ public class M1Dfa implements Dfa<Integer, M1Transition, Void> {
       for (BufferedTransition buffered : transitions) {
         if (buffered.transition instanceof CodeUnitTransition trans) {
           for (IntRangeSet partitionSubset : partitionedTransitions.get(trans.codeUnitSet())) {
-            states[buffered.from].put(new CodeUnitTransition(partitionSubset), new TransitionTarget(buffered.to));
+            states
+              .get(buffered.from)
+              .put(new CodeUnitTransition(partitionSubset), buffered.to);
           }
         }
       }
 
       // Defensively prevent updates to the state maps
-      for (int i = 0; i < states.length; i++) {
-        states[i] = Collections.unmodifiableMap(states[i]);
-      }
-      return new M1Dfa(states, initialState, finalState);
+      states.replaceAll(Collections::unmodifiableMap);
+      states.trimToSize();
+
+      return new M1Dfa(Collections.unmodifiableList(states), initialState, finalState);
     }
   }
 
-  @Override
-  public Integer initial() {
-    return initialState;
-  }
-
-  @Override
-  public Set<Integer> accepting() {
-    return Set.of(finalState);
-  }
-
-  @Override
-  public Set<Integer> allStates() {
-    return allStates;
-  }
-
-  @Override
-  @SuppressWarnings({"unchecked"})
-  public Map<M1Transition, Fsm.Transition<Integer, M1Transition, Void>> transitionsMap(Integer state) {
-    return (Map) states[state];
-  }
-
   /**
-   * Starting from the specified state, traverse 0 or more path marker edges,
-   * prioritizing `PLUS` over `MINUS` and stopping at states which have
-   * outgoing code point transitions.
+   * Explore all states reachable only via path markers and ending at states
+   * which have outgoing code unit transitions.
    *
-   * This uses a version of DFS where we try `PLUS` before `MINUS` (by virtue
-   * of the linked hashmap order). This means that the runtime is {@code O(E)},
-   * but practically speaking the sub-graphs for marker paths tend to be much
-   * smaller (and often not connected to each other).
+   * If there are paths for reaching the same code unit transition, the path
+   * which has a {@code AlternationMarker.PLUS} earlier on it is the one that
+   * should be returned.
    *
-   * @param startingState state from which to start the search
-   * @return mapping from states reachable via marker paths to those paths
+   * The worst case complexity is {@code O(E)} (since we visit each transition
+   * at most once), but it is usually much better. Practically speaking the
+   * sub-graph obtained by filtering out code unit transitions tends to be much
+   * smaller and often not connected.
+   *
+   * @param startingState state from which to initiate the directed search
+   * @return mapping from states reachable via path markers to those paths
    */
-  public Map<Integer, EmptyPath> exploreMarkerPaths(int startingState) {
-    record ToVisit(int state, EmptyPath pathToState) { }
+  public Map<Integer, PathMarkers> reachableViaPathMarkers(int startingState) {
+    record ToVisit(int state, PathMarkers pathToState) { }
 
     final var seenStates = new HashSet<Integer>();
     final var toVisit = new Stack<ToVisit>();
-    final var output = new HashMap<Integer, EmptyPath>();
+    final var output = new HashMap<Integer, PathMarkers>();
 
     // Seed the DFS with the starting node
-    toVisit.push(new ToVisit(startingState, null));
+    toVisit.push(new ToVisit(startingState, PathMarkers.EMPTY));
     seenStates.add(startingState);
 
     // DFS loop
@@ -243,15 +205,15 @@ public class M1Dfa implements Dfa<Integer, M1Transition, Void> {
         continue;
       }
 
-      for (var entry : states[next.state()].entrySet()) {
-        int entryTo = entry.getValue().to();
+      for (var entry : states.get(next.state()).entrySet()) {
+        final int entryTo = entry.getValue();
 
         // If the transition out of this state is not a path marker, halt the search
         if (entry.getKey() instanceof PathMarker marker) {
 
           // Skip over states we've already seen
           if (seenStates.add(entryTo)) {
-            var newPath = new EmptyPath(next.pathToState(), marker);
+            var newPath = next.pathToState().appended(marker);
             toVisit.push(new ToVisit(entryTo, newPath));
           }
         } else {
@@ -263,4 +225,35 @@ public class M1Dfa implements Dfa<Integer, M1Transition, Void> {
 
     return output;
   }
+
+  @Override
+  public Stream<DotGraph.Vertex<Integer>> vertices() {
+    return IntStream
+      .range(0, states.size())
+      .mapToObj((int id) -> new DotGraph.Vertex<Integer>(id, id == finalState));
+  }
+
+  @Override
+  public Stream<DotGraph.Edge<Integer, M1Transition>> edges() {
+    var transitionEdges = IntStream
+      .range(0, states.size())
+      .boxed()
+      .flatMap((Integer from) -> {
+        return states
+          .get(from)
+          .entrySet()
+          .stream()
+          .map(entry -> new DotGraph.Edge<>(from, entry.getValue(), entry.getKey()));
+      });
+    var initialEdge = Stream
+      .of(new DotGraph.Edge<Integer, M1Transition>(null, initialState, null));
+    return Stream.concat(initialEdge, transitionEdges);
+  }
+
+  @Override
+  public String renderEdgeLabel(DotGraph.Edge<Integer, M1Transition> edge) {
+    final M1Transition label = edge.label();
+    return label == null ? "" : label.dotLabel();
+  }
+
 }

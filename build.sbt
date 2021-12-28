@@ -4,16 +4,21 @@ ThisBuild / organization     := "com.atheriault"
 
 lazy val root = (project in file("."))
   .settings(
+    crossPaths := false, // drop off Scala suffix from artifact names.
+    autoScalaLibrary := false,
     name := "regex-automata",
     javacOptions += "-Xlint",
     scalacOptions ++= Seq(
       "-encoding", "utf8",
       "-deprecation",
       "-unchecked",
-      "-Xlint"
+      "-Xlint",
     ),
-    libraryDependencies += "org.scalatest" %% "scalatest" % "3.2.9" % Test,
-    libraryDependencies += "org.ow2.asm" % "asm" % "9.2"
+    libraryDependencies ++= Seq(
+      "org.ow2.asm" % "asm" % "9.2",
+      "org.scala-lang" % "scala-library" % scalaVersion.value % Test,
+      "org.scalatest" %% "scalatest" % "3.2.9" % Test,
+    ),
   )
 
 lazy val bench = (project in file("bench"))

@@ -11,7 +11,24 @@ import java.util.function.BiConsumer;
  * @param <E> input symbol alphabet
  * @param <T> annotations on transitions
  */
-public interface Dfa<Q, E, T> extends Fsm<Q, E, T> {
+public interface Dfa<Q, E, T> {
+
+  interface Transition<Q, E, T> {
+
+    /**
+     * Target of the transition
+     *
+     * @return state pointed to by this transition
+     */
+    Q targetState();
+
+    /**
+     * Annotation on the transition
+     *
+     * @return annotation stored on the transition
+     */
+    T annotation();
+  }
 
   /**
    * Initial state
@@ -20,8 +37,38 @@ public interface Dfa<Q, E, T> extends Fsm<Q, E, T> {
    */
   Q initial();
 
-  default Set<Q> initials() {
-    return Set.of(initial());
+  /**
+   * Accepting states
+   *
+   * @return accepting states in the machine
+   */
+  Set<Q> accepting();
+
+  /**
+   * All states
+   *
+   * @return set of all (reachable) states in the FSM
+   */
+  default Set<Q> allStates() {
+    final Set<Q> states = new HashSet<Q>();
+    final Stack<Q> toVisit = new Stack<Q>();
+
+    {
+      final Q initial = initial();
+      toVisit.push(initial);
+      states.add(initial);
+    }
+
+    while (!toVisit.empty()) {
+      for (var transition : transitionsMap(toVisit.pop()).values()) {
+        final Q target = transition.targetState();
+        if (states.add(target)) {
+          toVisit.push(target);
+        }
+      }
+    }
+
+    return states;
   }
 
   /**
@@ -31,10 +78,6 @@ public interface Dfa<Q, E, T> extends Fsm<Q, E, T> {
    * @return map of alphabet symbols to transitions
    */
   Map<E, Transition<Q, E, T>> transitionsMap(Q state);
-
-  default Collection<Map.Entry<E, Transition<Q, E, T>>> transitions(Q state) {
-    return transitionsMap(state).entrySet();
-  }
 
   /**
    * Run the a DFA either to completion or to a stuck state

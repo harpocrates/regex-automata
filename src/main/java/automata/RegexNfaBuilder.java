@@ -171,8 +171,8 @@ abstract class RegexNfaBuilder<Q> extends CodePointSetVisitor implements RegexVi
         final Q argTo = freshState();
         final Q from = freshState();
         final Q argFrom = arg.apply(argTo);
-        addGroupState(argTo, idx, true, to);
-        addGroupState(from, idx, false, argFrom);
+        addGroupState(argTo, idx, false, to);
+        addGroupState(from, idx, true, argFrom);
         return from;
       };
     } else {
