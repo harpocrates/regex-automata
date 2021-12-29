@@ -10,6 +10,9 @@ public class CodePointSetVisitor implements CharClassVisitor<IntRangeSet> {
   final public static CodePointSetVisitor INSTANCE = new CodePointSetVisitor();
   final public static IntRange UNICODE_RANGE = IntRange.between(Character.MIN_CODE_POINT, Character.MAX_CODE_POINT);
   final public static IntRange BMP_RANGE = IntRange.between(Character.MIN_VALUE, Character.MAX_VALUE);
+  final public static IntRange LOW_SURROGATE_RANGE = IntRange.between(Character.MIN_LOW_SURROGATE, Character.MAX_LOW_SURROGATE);
+  final public static IntRange HIGH_SURROGATE_RANGE = IntRange.between(Character.MIN_HIGH_SURROGATE, Character.MAX_HIGH_SURROGATE);
+
 
   @Override
   public IntRangeSet visitCharacter(int codePoint) {

@@ -186,6 +186,28 @@ class RegexSpec extends AnyFlatSpec with Matchers {
     assert(matched.groupCount == 0, "regex has right number of captures")
   }
 
+  "[a𐐷]€\\$" should "match '𐐷€$' in interpreted mode" in {
+    val pattern = DfaPattern.interpreted("[a𐐷]€\\$")
+
+    val matches: Boolean = pattern.checkMatch("𐐷€$")
+    val matched: MatchResult = pattern.captureMatch("𐐷€$")
+    assert(matches, "regex checkMatch-es")
+    assert(matched != null, "regex captureMatch-es")
+
+    assert(matched.groupCount == 0, "regex has right number of captures")
+  }
+
+  "[a𐐷]€\\$" should "match '𐐷€$' in compiled mode" in {
+    val pattern = DfaPattern.compile("[a𐐷]€\\$")
+
+    val matches: Boolean = pattern.checkMatch("𐐷€$")
+    val matched: MatchResult = pattern.captureMatch("𐐷€$")
+    assert(matches, "regex checkMatch-es")
+    assert(matched != null, "regex captureMatch-es")
+
+    assert(matched.groupCount == 0, "regex has right number of captures")
+  }
+
   val phoneRe = raw"(?:\+?(\d{1,3}))?[-. (]*(\d{3})[-. )]*(\d{3})[-. ]*(\d{4})(?: *x(\d+))?"
   phoneRe should "match phone numbers in compiled mode" in {
     val pattern = DfaPattern.compile(phoneRe)
