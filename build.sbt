@@ -17,7 +17,7 @@ lazy val root = (project in file("."))
     libraryDependencies ++= Seq(
       "org.ow2.asm" % "asm" % "9.2",
       "org.scala-lang" % "scala-library" % scalaVersion.value % Test,
-      "org.scalatest" %% "scalatest" % "3.2.9" % Test,
+      "org.scalatest" %% "scalatest" % "3.2.10" % Test,
     ),
   )
 

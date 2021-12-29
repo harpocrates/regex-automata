@@ -4,6 +4,8 @@ import java.util.Iterator;
 import java.util.stream.IntStream;
 import java.util.regex.MatchResult;
 
+// TODO: throw `IndexOutOfBoundsException` in start(I), end(I), group(I)
+// TODO: revisit what the first group is supposed to be
 public class ArrayMatchResult implements MatchResult {
   private final String matchedString;
 

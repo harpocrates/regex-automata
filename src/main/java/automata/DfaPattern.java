@@ -85,6 +85,13 @@ public interface DfaPattern {
    */
   public String pattern();
 
+  /**
+   * Compute the number of groups in the pattern.
+   *
+   * @return number of capture groups in the pattern
+   */
+  public int groupCount();
+
   final static public class InterpretableDfaPattern implements DfaPattern {
     public final String pattern;
     private final boolean printDebugInfo;
@@ -108,6 +115,10 @@ public interface DfaPattern {
       final String inputStr = input.toString();
       var m3Path = m3.captureSimulate(inputStr, printDebugInfo);
       return m3Path == null ? null : m4.simulate(inputStr, m3Path, printDebugInfo);
+    }
+
+    public int groupCount() {
+      return m4.groupCount();
     }
 
     public InterpretableDfaPattern(String pattern, boolean printDebugInfo) throws ParseException {

@@ -35,6 +35,7 @@ public final class CompiledDfaCodegen {
   // Method name constants
   private static final Method EMPTYINIT_M = new Method("<init>", methodType(void.class), Opcodes.INVOKESPECIAL);
   private static final Method PATTERN_M = new Method("pattern", methodType(String.class), Opcodes.INVOKEINTERFACE);
+  private static final Method GROUPCOUNT_M = new Method("groupCount", methodType(int.class), Opcodes.INVOKEINTERFACE);
   private static final Method CHECKMATCH_M = new Method("checkMatch", methodType(boolean.class, CharSequence.class), Opcodes.INVOKEINTERFACE);
   private static final Method CAPTUREMATCH_M = new Method("captureMatch", methodType(ArrayMatchResult.class, CharSequence.class), Opcodes.INVOKEINTERFACE);
   private static final Method CHECKMATCHSTATIC_M = new Method("checkMatchStatic", methodType(boolean.class, CharSequence.class), Opcodes.INVOKESTATIC);
@@ -144,6 +145,16 @@ public final class CompiledDfaCodegen {
       mv.visitCode();
       mv.visitLdcInsn(pattern);
       mv.visitInsn(Opcodes.ARETURN);
+      mv.visitMaxs(0, 0);
+      mv.visitEnd();
+    }
+
+    // `groupCount` method
+    {
+      final var mv = GROUPCOUNT_M.newMethod(cw, Opcodes.ACC_PUBLIC);
+      mv.visitCode();
+      mv.visitLdcInsn(groupCount);
+      mv.visitInsn(Opcodes.IRETURN);
       mv.visitMaxs(0, 0);
       mv.visitEnd();
     }

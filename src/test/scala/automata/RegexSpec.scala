@@ -1,242 +1,245 @@
 package automata
 
-import scala.jdk.CollectionConverters._
+import org.scalactic.source.Position
+import org.scalatest.funspec.AnyFunSpec
 import java.util.regex.MatchResult
-import org.scalatest.flatspec.AnyFlatSpec
-import org.scalatest.matchers.should.Matchers
+import scala.collection.immutable.ListMap
+import java.lang.{StringBuilder => JavaStringBuilder}
 
-class RegexSpec extends AnyFlatSpec with Matchers {
-  "((a)*|b)(ab|b)" should "match 'aaab' in interpreted mode" in {
-    val pattern = DfaPattern.interpreted("((a)*|b)(ab|b)")
+class RegexSpec extends AnyFunSpec {
 
-    val matches: Boolean = pattern.checkMatch("aaab")
-    val matched: MatchResult = pattern.captureMatch("aaab")
-    assert(matches, "regex checkMatch-es")
-    assert(matched != null, "regex captureMatch-es")
+  private def testMatching(
+    pattern: String,
+    expectedGroupCount: Int,
+    inputs: Map[String, Option[Seq[(Int, Int, String)]]]
+  )(implicit
+    pos: Position
+  ): Unit = {
+    def testUsing(p: DfaPattern): Unit = {
+      assert(expectedGroupCount == p.groupCount, "count of capture groups in pattern")
 
-    assert(matched.groupCount == 3, "regex has right number of captures")
+      for ((input, expectedOutput) <- inputs) {
 
-    assert(matched.start(0) == 0, "first group start")
-    assert(matched.end(0) == 3, "first group end")
-    assert(matched.group(0) == "aaa", "first group")
+        // ScalaTest chokes if a test name is an invalid UTF-16 string, so patch those
+        val testName: String = input
+          .codePoints()
+          .map(i => if (0xD800 <= i && i <= 0xDFFF) '?'.toInt else i)
+          .collect[JavaStringBuilder](() => new JavaStringBuilder(), _.appendCodePoint(_), _.append(_))
+          .toString
 
-    assert(matched.start(1) == 2, "second group start")
-    assert(matched.end(1) == 3, "second group end")
-    assert(matched.group(1) == "a", "second group")
+          it(if (testName.isEmpty) "<empty>" else testName) {
+          val matches: Boolean = p.checkMatch(input)
+          val matched: MatchResult = p.captureMatch(input)
 
-    assert(matched.start(2) == 3, "third group start")
-    assert(matched.end(2) == 4, "third group end")
-    assert(matched.group(2) == "b", "third group")
-  }
+          expectedOutput match {
+            case None =>
+              assert(!matches, "checkMatch should fail to match")
+              assert(matched == null, "captureMatch should return a null match")
 
-  it should "match 'aaab' in compiled mode" in {
-    val pattern = DfaPattern.compile("((a)*|b)(ab|b)")
+            case Some(groups) =>
+              assert(matches, "checkMatch should successfully match")
+              assert(matched != null, "captureMatch should return a non-null match")
 
-    val matches: Boolean = pattern.checkMatch("aaab")
-    val matched: MatchResult = pattern.captureMatch("aaab")
-    assert(matches, "regex checkMatch-es")
-    assert(matched != null, "regex captureMatch-es")
+              assert(groups.length == matched.groupCount)
+              for (i <- 0 until groups.length) {
+                val (expectedStart, expectedEnd, expectedCapture) = groups(i)
+                assert(matched.start(i) == expectedStart, s"start index of capture group $i")
+                assert(matched.end(i) == expectedEnd, s"end index of capture group $i")
+                assert(matched.group(i) == expectedCapture, s"value of capture group $i")
+              }
+          }
+        }
+      }
+    }
 
-    assert(matched.groupCount == 3, "regex has right number of captures")
-
-    assert(matched.start(0) == 0, "first group start")
-    assert(matched.end(0) == 3, "first group end")
-    assert(matched.group(0) == "aaa", "first group")
-
-    assert(matched.start(1) == 2, "second group start")
-    assert(matched.end(1) == 3, "second group end")
-    assert(matched.group(1) == "a", "second group")
-
-    assert(matched.start(2) == 3, "third group start")
-    assert(matched.end(2) == 4, "third group end")
-    assert(matched.group(2) == "b", "third group")
-  }
-
-  it should "match 'bab' in interpreted mode" in {
-    val pattern = DfaPattern.interpreted("((a)*|b)(ab|b)")
-
-    val matches: Boolean = pattern.checkMatch("bab")
-    val matched: MatchResult = pattern.captureMatch("bab")
-    assert(matches, "regex checkMatch-es")
-    assert(matched != null, "regex captureMatch-es")
-
-    assert(matched.groupCount == 3, "regex has right number of captures")
-
-    assert(matched.start(0) == 0, "first group start")
-    assert(matched.end(0) == 1, "first group end")
-    assert(matched.group(0) == "b", "first group")
-
-    assert(matched.start(1) == -1, "second group start")
-    assert(matched.end(1) == -1, "second group end")
-    assert(matched.group(1) == null, "second group")
-
-    assert(matched.start(2) == 1, "third group start")
-    assert(matched.end(2) == 3, "third group end")
-    assert(matched.group(2) == "ab", "third group")
-  }
-
-  it should "match 'bab' in compiled mode" in {
-    val pattern = DfaPattern.compile("((a)*|b)(ab|b)")
-
-    val matches: Boolean = pattern.checkMatch("bab")
-    val matched: MatchResult = pattern.captureMatch("bab")
-    assert(matches, "regex checkMatch-es")
-    assert(matched != null, "regex captureMatch-es")
-
-    assert(matched.groupCount == 3, "regex has right number of captures")
-
-    assert(matched.start(0) == 0, "first group start")
-    assert(matched.end(0) == 1, "first group end")
-    assert(matched.group(0) == "b", "first group")
-
-    assert(matched.start(1) == -1, "second group start")
-    assert(matched.end(1) == -1, "second group end")
-    assert(matched.group(1) == null, "second group")
-
-    assert(matched.start(2) == 1, "third group start")
-    assert(matched.end(2) == 3, "third group end")
-    assert(matched.group(2) == "ab", "third group")
-  }
-
-  it should "not match 'abab' in interpreted mode" in {
-    val pattern = DfaPattern.interpreted("((a)*|b)(ab|b)")
-
-    val matches: Boolean = pattern.checkMatch("abab")
-    val matched: MatchResult = pattern.captureMatch("abab")
-    assert(!matches, "regex does not checkMatch")
-    assert(matched == null, "regex does not captureMatch")
-  }
-
-  it should "not match 'abab' in compiled mode" in {
-    val pattern = DfaPattern.compile("((a)*|b)(ab|b)")
-
-    val matches: Boolean = pattern.checkMatch("abab")
-    val matched: MatchResult = pattern.captureMatch("abab")
-    assert(!matches, "regex does not checkMatch")
-    assert(matched == null, "regex does not captureMatch")
-  }
-
-  "(x+x+)+y" should "match 'xxxy' in interpreted mode" in {
-    val pattern = DfaPattern.interpreted("(x+x+)+y")
-
-    val matches: Boolean = pattern.checkMatch("xxxy")
-    val matched: MatchResult = pattern.captureMatch("xxxy")
-    assert(matches, "regex checkMatch-es")
-    assert(matched != null, "regex captureMatch-es")
-
-    assert(matched.groupCount == 1, "regex has right number of captures")
-
-    assert(matched.start(0) == 0, "first group start")
-    assert(matched.end(0) == 3, "first group end")
-    assert(matched.group(0) == "xxx", "first group")
-  }
-
-  it should "match 'xxxy' in compiled mode" in {
-    val pattern = DfaPattern.compile("(x+x+)+y")
-
-    val matches: Boolean = pattern.checkMatch("xxxy")
-    val matched: MatchResult = pattern.captureMatch("xxxy")
-    assert(matches, "regex checkMatch-es")
-    assert(matched != null, "regex captureMatch-es")
-
-    assert(matched.groupCount == 1, "regex has right number of captures")
-
-    assert(matched.start(0) == 0, "first group start")
-    assert(matched.end(0) == 3, "first group end")
-    assert(matched.group(0) == "xxx", "first group")
-  }
-
-  it should "not match 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx' in interpreted mode" in {
-    val pattern = DfaPattern.interpreted("(x+x+)+y")
-
-    val matches: Boolean = pattern.checkMatch("xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx")
-    val matched: MatchResult = pattern.captureMatch("xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx")
-    assert(!matches, "regex does not checkMatch")
-    assert(matched == null, "regex does not captureMatch")
-  }
-
-  it should "not match 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx' in compiled mode" in {
-    val pattern = DfaPattern.compile("(x+x+)+y")
-
-    val matches: Boolean = pattern.checkMatch("xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx")
-    val matched: MatchResult = pattern.captureMatch("xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx")
-    assert(!matches, "regex does not checkMatch")
-    assert(matched == null, "regex does not captureMatch")
-  }
-
-  "uv" should "match 'uv' in interpreted mode" in {
-    val pattern = DfaPattern.interpreted("uv")
-
-    val matches: Boolean = pattern.checkMatch("uv")
-    val matched: MatchResult = pattern.captureMatch("uv")
-    assert(matches, "regex checkMatch-es")
-    assert(matched != null, "regex captureMatch-es")
-
-    assert(matched.groupCount == 0, "regex has right number of captures")
-  }
-
-  it should "match 'uv' in compiled mode" in {
-    val pattern = DfaPattern.compile("uv")
-
-    val matches: Boolean = pattern.checkMatch("uv")
-    val matched: MatchResult = pattern.captureMatch("uv")
-    assert(matches, "regex checkMatch-es")
-    assert(matched != null, "regex captureMatch-es")
-
-    assert(matched.groupCount == 0, "regex has right number of captures")
-  }
-
-  "[a𐐷]€\\$" should "match '𐐷€$' in interpreted mode" in {
-    val pattern = DfaPattern.interpreted("[a𐐷]€\\$")
-
-    val matches: Boolean = pattern.checkMatch("𐐷€$")
-    val matched: MatchResult = pattern.captureMatch("𐐷€$")
-    assert(matches, "regex checkMatch-es")
-    assert(matched != null, "regex captureMatch-es")
-
-    assert(matched.groupCount == 0, "regex has right number of captures")
-  }
-
-  "[a𐐷]€\\$" should "match '𐐷€$' in compiled mode" in {
-    val pattern = DfaPattern.compile("[a𐐷]€\\$")
-
-    val matches: Boolean = pattern.checkMatch("𐐷€$")
-    val matched: MatchResult = pattern.captureMatch("𐐷€$")
-    assert(matches, "regex checkMatch-es")
-    assert(matched != null, "regex captureMatch-es")
-
-    assert(matched.groupCount == 0, "regex has right number of captures")
-  }
-
-  val phoneRe = raw"(?:\+?(\d{1,3}))?[-. (]*(\d{3})[-. )]*(\d{3})[-. ]*(\d{4})(?: *x(\d+))?"
-  phoneRe should "match phone numbers in compiled mode" in {
-    val pattern = DfaPattern.compile(phoneRe)
-
-    val shouldMatch = List(
-      "18005551234" -> List("1", "800", "555", "1234", null),
-      "1 800 555 1234" -> List("1", "800", "555", "1234", null),
-      "+1 800 555-1234" -> List("1", "800", "555", "1234", null),
-      "+86 800 555 1234" -> List("86", "800", "555", "1234", null),
-      "1-800-555-1234" -> List("1", "800", "555", "1234", null),
-      "1 (800) 555-1234" -> List("1", "800", "555", "1234", null),
-      "(800)555-1234" -> List(null, "800", "555", "1234", null),
-      "(800) 555-1234" -> List(null, "800", "555", "1234", null),
-      "(800)5551234" -> List(null, "800", "555", "1234", null),
-      "800-555-1234" -> List(null, "800", "555", "1234", null),
-      "800.555.1234" -> List(null, "800", "555", "1234", null),
-      "800 555 1234x5678" -> List(null, "800", "555", "1234", "5678"),
-      "8005551234 x5678" -> List(null, "800", "555", "1234", "5678"),
-      "1    800    555-1234" -> List("1", "800", "555", "1234", null),
-      "1----800----555-1234" -> List("1", "800", "555", "1234", null)
-    )
-
-    for ((str, matchedGroups) <- shouldMatch) {
-      val matches: Boolean = pattern.checkMatch(str)
-      val matched: ArrayMatchResult = pattern.captureMatch(str)
-      assert(matches, "regex checkMatch-es")
-      assert(matched != null, "regex captureMatch-es")
-
-      assert(matchedGroups == matched.groups.asScala.toList, "groups match")
+    describe(if (pattern.isEmpty) "<empty>" else pattern) {
+      describe("interpreted")(testUsing(DfaPattern.interpreted(pattern)))
+      describe("compiled")(testUsing(DfaPattern.compile(pattern)))
     }
   }
+
+  private val NoGroup = (-1, -1, null)
+
+  // Simplest regex
+  testMatching(
+    pattern = "",
+    expectedGroupCount = 0,
+    inputs = ListMap(
+      "" -> Some(Nil),
+      "a" -> None,
+      "b" -> None
+    )
+  )
+
+  // Simple couple states
+  testMatching(
+    pattern = "uv",
+    expectedGroupCount = 0,
+    inputs = ListMap(
+      "uv" -> Some(Nil),
+      "uvw" -> None,
+      "uw" -> None
+    )
+  )
+
+  // Example from <https://www.labs.hpe.com/techreports/2012/HPL-2012-41R1.pdf>
+  testMatching(
+    pattern = "((a)*|b)(ab|b)",
+    expectedGroupCount = 3,
+    inputs = ListMap(
+      "aaab" -> Some(List(
+        (0, 3, "aaa"),
+        (2, 3, "a"),
+        (3, 4, "b")
+      )),
+      "bab" -> Some(List(
+        (0, 1, "b"),
+        NoGroup,
+        (1, 3, "ab")
+      )),
+      "abab" -> None
+    )
+  )
+
+  // Catastrophic backtracking from <https://www.regular-expressions.info/catastrophic.html>
+  testMatching(
+    pattern = "(x+x+)+y",
+    expectedGroupCount = 1,
+    inputs = ListMap(
+      "xxxy" -> Some(List(
+        (0, 3, "xxx")
+      )),
+      "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxy" -> Some(List(
+        (0, 45, "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx")
+      )),
+      "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" -> None
+    )
+  )
+
+  // Matching codepoints in supplementary plane
+  testMatching(
+    pattern = "(€[a𐐷])%",
+    expectedGroupCount = 1,
+    inputs = ListMap(
+      "€a%" -> Some(List((0, 2, "€a"))),
+      "€𐐷%" -> Some(List((0, 3, "€𐐷"))),
+      "€\uD801\uDC37%" -> Some(List((0, 3, "€𐐷"))),
+      "€b%" -> None,
+      "€\uD801%" -> None,
+      "€\uD801\uDC38%" -> None
+    )
+  )
+
+  // Matching phone numbers
+  testMatching(
+    pattern = raw"(?:\+?(\d{1,3}))?[-. (]*(\d{3})[-. )]*(\d{3})[-. ]*(\d{4})(?: *x(\d+))?",
+    expectedGroupCount = 5,
+    inputs = ListMap(
+      "18005551234" -> Some(List(
+        (0, 1, "1"),
+        (1, 4, "800"),
+        (4, 7, "555"),
+        (7, 11, "1234"),
+        NoGroup
+      )),
+      "1 800 555 1234" -> Some(List(
+        (0, 1, "1"),
+        (2, 5, "800"),
+        (6, 9, "555"),
+        (10, 14, "1234"),
+        NoGroup
+      )),
+      "+1 800 555-1234" -> Some(List(
+        (1, 2, "1"),
+        (3, 6, "800"),
+        (7, 10, "555"),
+        (11, 15, "1234"),
+        NoGroup
+      )),
+      "86 800 555-1234" -> Some(List(
+        (0, 2, "86"),
+        (3, 6, "800"),
+        (7, 10, "555"),
+        (11, 15, "1234"),
+        NoGroup
+      )),
+      "1-800-555-1234" -> Some(List(
+        (0, 1, "1"),
+        (2, 5, "800"),
+        (6, 9, "555"),
+        (10, 14, "1234"),
+        NoGroup
+      )),
+      "1 (800) 555-1234" -> Some(List(
+        (0, 1, "1"),
+        (3, 6, "800"),
+        (8, 11, "555"),
+        (12, 16, "1234"),
+        NoGroup
+      )),
+      "(800)555-1234" -> Some(List(
+        NoGroup,
+        (1, 4, "800"),
+        (5, 8, "555"),
+        (9, 13, "1234"),
+        NoGroup
+      )),
+      "(800) 555-1234" -> Some(List(
+        NoGroup,
+        (1, 4, "800"),
+        (6, 9, "555"),
+        (10, 14, "1234"),
+        NoGroup
+      )),
+      "(800)5551234" -> Some(List(
+        NoGroup,
+        (1, 4, "800"),
+        (5, 8, "555"),
+        (8, 12, "1234"),
+        NoGroup
+      )),
+      "800-555-1234" -> Some(List(
+        NoGroup,
+        (0, 3, "800"),
+        (4, 7, "555"),
+        (8, 12, "1234"),
+        NoGroup
+      )),
+      "800.555.1234" -> Some(List(
+        NoGroup,
+        (0, 3, "800"),
+        (4, 7, "555"),
+        (8, 12, "1234"),
+        NoGroup
+      )),
+      "800 555 1234x5678" -> Some(List(
+        NoGroup,
+        (0, 3, "800"),
+        (4, 7, "555"),
+        (8, 12, "1234"),
+        (13, 17, "5678")
+      )),
+      "8005551234 x5678" -> Some(List(
+        NoGroup,
+        (0, 3, "800"),
+        (3, 6, "555"),
+        (6, 10, "1234"),
+        (12, 16, "5678")
+      )),
+      "1    800    555-1234" -> Some(List(
+        (0, 1, "1"),
+        (5, 8, "800"),
+        (12, 15, "555"),
+        (16, 20, "1234"),
+        NoGroup
+      )),
+      "1----800----555-1234" -> Some(List(
+        (0, 1, "1"),
+        (5, 8, "800"),
+        (12, 15, "555"),
+        (16, 20, "1234"),
+        NoGroup
+      )),
+    )
+  )
 }
