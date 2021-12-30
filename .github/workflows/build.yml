@@ -17,6 +17,6 @@ jobs:
         distribution: 'zulu'
         java-version: '17'
     - name: Build
-      run: sbt compile
+      run: sbt compile bench/compile
     - name: Run tests
       run: sbt test

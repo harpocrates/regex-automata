@@ -90,7 +90,7 @@ trait ReGenerator extends ArbitraryExtensions {
   implicit lazy val regexArbitrary: Arbitrary[Re] = {
 
     @unused
-    def regexArbitrary(): Unit = ()
+    val regexArbitrary: Unit = ()
 
     // This will generate all groups as index `0`
     // TODO: repetition
@@ -174,33 +174,4 @@ trait ArbitraryExtensions {
       t2 <- Gen.resize(s2, Arbitrary.arbitrary[T2])
       t3 <- Gen.resize(s3, Arbitrary.arbitrary[T3])
     } yield f(t1, t2, t3)
-
-  /** This behaves like one big `oneOf`, except in the case that the size is 1
-    * or smaller. In those cases, only the "small" generators take part in the
-    * `oneOf`. This becomes useful in tree-like structures because when reaching
-    * tree leaves, we want to avoid trying to generate non-leaf nodes (since
-    * those will eventually just underflow the generator, making it fail and
-    * skip).
-    *
-    * This manifests as a test failure due to too many skipped test cases.
-    *
-    * @param small set of generators to try when size <= 1
-    * @param other set of other generators to also try when size > 1
-    * @return generator that tries both inputs sets of generators
-    */
-  def sizedOneOf[A](small: Seq[Gen[A]], other: Seq[Gen[A]]): Gen[A] = {
-    val gens: IndexedSeq[Gen[A]] = (small ++ other).toIndexedSeq
-    val smallGensMax: Int = math.max(0, small.length - 1)
-    val allGensMax: Int = gens.length - 1
-    if (allGensMax < 0) {
-      Gen.fail[A]
-    } else {
-      for {
-        size <- Gen.size
-        genIdx <- Gen.choose(0, if (size <= 1) smallGensMax else allGensMax)
-        a <- gens(genIdx)
-      } yield a
-    }
-  }
-
 }
