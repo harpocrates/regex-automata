@@ -11,6 +11,7 @@ import java.util.OptionalInt;
  * instead of as an explicit AST type.
  *
  * TODO: document supported syntax
+ * TODO: use `PatternSyntaxException`
  */
 public final class RegexParser<A, C> {
 
@@ -180,6 +181,7 @@ public final class RegexParser<A, C> {
    *
    * Called on non-empty input.
    */
+  @SuppressWarnings("fallthrough")
   private A parseGroup() throws ParseException {
     switch (input.charAt(position)) {
       case '(':
@@ -187,11 +189,20 @@ public final class RegexParser<A, C> {
 
       case '^':
         position++;
-        return visitor.visitBoundary(RegexVisitor.Boundary.BEGINNING);
+        return visitor.visitBoundary(RegexVisitor.Boundary.BEGINNING_OF_LINE);
 
       case '$':
         position++;
-        return visitor.visitBoundary(RegexVisitor.Boundary.END);
+        return visitor.visitBoundary(RegexVisitor.Boundary.END_OF_LINE);
+
+      case '\\':
+        if (position + 1 < length) {
+          final var boundary = RegexVisitor.Boundary.CHARACTERS.get(input.charAt(position + 1));
+          if (boundary != null) {
+            position += 2;
+            return visitor.visitBoundary(boundary);
+          }
+        }
 
       default:
         return visitor.visitCharacterClass(parseCharacterClass());
@@ -271,9 +282,11 @@ public final class RegexParser<A, C> {
       case '.':
         if (insideClass) {
           position++;
-          return visitor.visitCharacter('.');
+          stashedCodePoint = '.';
+          return null;
         } else {
-          throw new ParseException("Wildcard character is not yet supported", position);
+          position++;
+          return visitor.visitBuiltinClass(CharClassVisitor.BuiltinClass.DOT);
         }
 
       // Character class
@@ -299,7 +312,7 @@ public final class RegexParser<A, C> {
         }
 
         // Class body
-        final C union = parseClassUnion();
+        final C union = parseClassIntersection();
         if (!(position < length && input.charAt(position) == ']')) {
           throw new ParseException(
             "Unclosed character class (expected close to bracket opened at " + openBracketPosition + ")",
@@ -337,41 +350,20 @@ public final class RegexParser<A, C> {
 
           // Character classes
           case 'd':
-            if (closingClassRange) {
-              throw new ParseException("Cannot end class range with 'd', position", position);
-            }
-            position++;
-            return visitor.visitBuiltinClass(CharClassVisitor.BuiltinClass.DIGIT);
           case 'D':
-            if (closingClassRange) {
-              throw new ParseException("Cannot end class range with 'D', position", position);
-            }
-            position++;
-            return visitor.visitBuiltinClass(CharClassVisitor.BuiltinClass.NON_DIGIT);
+          case 'h':
+          case 'H':
           case 's':
-            if (closingClassRange) {
-              throw new ParseException("Cannot end class range with 's', position", position);
-            }
-            position++;
-            return visitor.visitBuiltinClass(CharClassVisitor.BuiltinClass.WHITE_SPACE);
           case 'S':
-            if (closingClassRange) {
-              throw new ParseException("Cannot end class range with 'S', position", position);
-            }
-            position++;
-            return visitor.visitBuiltinClass(CharClassVisitor.BuiltinClass.NON_WHITE_SPACE);
+          case 'v':
+          case 'V':
           case 'w':
-            if (closingClassRange) {
-              throw new ParseException("Cannot end class range with 'w', position", position);
-            }
-            position++;
-            return visitor.visitBuiltinClass(CharClassVisitor.BuiltinClass.WORD);
           case 'W':
             if (closingClassRange) {
-              throw new ParseException("Cannot end class range with 'W', position", position);
+              throw new ParseException("Cannot end class range with character class", position);
             }
             position++;
-            return visitor.visitBuiltinClass(CharClassVisitor.BuiltinClass.NON_WORD);
+            return visitor.visitBuiltinClass(CharClassVisitor.BuiltinClass.CHARACTERS.get(c));
 
           // Bell character
           case 'a':
@@ -409,11 +401,21 @@ public final class RegexParser<A, C> {
             stashedCodePoint = '\r';
             return null;
 
-          // Vertical tab
-          case 'v':
+          // Control character
+          case 'c':
             position++;
-            stashedCodePoint = '\u000b';
-            return null;
+            if (position >= length) {
+              throw new ParseException("Control character letter but got end of regex", position);
+            } else {
+              final char control = input.charAt(position);
+              if ('A' <= control && control <= 'Z') {
+                position++;
+                stashedCodePoint = control - 'A' + 112;
+                return null;
+              } else {
+                throw new ParseException("Control character letter", position);
+              }
+            }
 
           // Hexadecimal escape `\xhh` or `\x{h...h}`
           case 'x':
@@ -447,7 +449,7 @@ public final class RegexParser<A, C> {
                 throw new ParseException(
                   "Expected 2 hexadecimal escape characters but got end of regex",
                   position
-                 );
+                );
               }
               codePoint = parseHexadecimalCharacter();
               codePoint = (codePoint << 4) | parseHexadecimalCharacter();
@@ -462,7 +464,7 @@ public final class RegexParser<A, C> {
               throw new ParseException(
                 "Expected 4 hexadecimal escape characters but got end of regex",
                 position
-               );
+              );
             }
             codePoint = parseHexadecimalCharacter();
             codePoint = (codePoint << 4) | parseHexadecimalCharacter();
@@ -470,6 +472,61 @@ public final class RegexParser<A, C> {
             codePoint = (codePoint << 4) | parseHexadecimalCharacter();
             stashedCodePoint = codePoint;
             return null;
+
+          // Octal escape `\\0ooo`
+          case '0':
+            position++;
+            if (position >= length) {
+              throw new ParseException(
+                "Expected 1 to 3 octal escape characters but got end of regex",
+                position
+              );
+            }
+
+            // Parse the first octal escape
+            int octal = Character.digit(input.charAt(position), 8);
+            if (octal < 0) {
+              throw new ParseException(
+                "Expected an octal escape character",
+                position
+              );
+            }
+            position++;
+            codePoint = octal;
+
+            // Parse the optional second and third octal escapes
+            for (int i = 0; i < 2 && position < length; i++) {
+              octal = Character.digit(input.charAt(position), 8);
+              if (octal < 0) {
+                break;
+              }
+              position++;
+              codePoint = (codePoint << 3) | octal;
+            }
+
+            stashedCodePoint = codePoint;
+            return null;
+
+          // Code point by name
+          case 'N':
+            position++;
+
+            if (position >= length || input.charAt(position) != '{') {
+              throw new ParseException("Expected `{`", position);
+            } else {
+              final int start = ++position;
+
+              // Loop over characters
+              while (position < length) {
+                if (input.charAt(position) == '}') {
+                  stashedCodePoint = Character.codePointOf(input.substring(start, position));
+                  position++;
+                  return null;
+                }
+                position++;
+              }
+              throw new ParseException("`}` but got end of regex", position);
+            }
 
           // Back-references
           case '1':
@@ -484,8 +541,27 @@ public final class RegexParser<A, C> {
           case 'k':
             throw new ParseException("Backreferences are not supported", position);
 
+          // Invalid boundary
+          case 'b':
+          case 'B':
+          case 'A':
+          case 'Z':
+          case 'z':
+            if (closingClassRange) {
+              throw new ParseException("Cannot use boundary escapes in character class", position);
+            } else {
+              throw new IllegalStateException("This should be unreachable");
+            }
+
           default:
-            throw new ParseException("Unknown escape sequence: " + c, position);
+            if (Character.isLetter(c)) {
+              throw new ParseException("Unknown escape sequence: " + c, position);
+            } else {
+              codePoint = input.codePointAt(position);
+              position += Character.charCount(codePoint);
+              stashedCodePoint = codePoint;
+              return null;
+            }
         }
 
       default:
@@ -497,53 +573,53 @@ public final class RegexParser<A, C> {
   }
 
   /**
-   * Parse a union inside a bracket-delimited class.
-   *
-   * Called on non-empty input.
-   */
-  private C parseClassUnion() throws ParseException {
-    C union = parseClassIntersection();
-
-    // Keep parsing unions until a lower priority construct is encountered
-    union_loop: while (position < length) {
-      switch (input.charAt(position)) {
-        // Intersection
-        case '&':
-          if (position + 1 >= length || input.charAt(position + 1) == '&') {
-            break;
-          }
-          break union_loop;
-
-        // End of class
-        case ']':
-          break union_loop;
-      }
-      union = visitor.visitUnion(union, parseClassIntersection());
-    }
-
-    return union;
-  }
-
-  /**
    * Parse an intersection inside a bracket-delimited class.
    *
    * Called on non-empty input.
    */
   private C parseClassIntersection() throws ParseException {
-    C intersection = parseCharacterRange();
+    final int i = new java.util.Random().nextInt(0, 100);
+    C intersection = parseClassUnion();
 
     while (position + 2 < length) {
       if (input.charAt(position) != '&' || input.charAt(position + 1) != '&') {
         break;
       }
       position += 2;
-      if (position >= length) {
-        throw new ParseException("Invalid class intersection, missing right hand side", position);
-      }
-      intersection = visitor.visitIntersection(intersection, parseCharacterRange());
+      C u = parseClassUnion();
+      intersection = visitor.visitIntersection(intersection, u);
     }
 
     return intersection;
+  }
+
+
+  /**
+   * Parse a union inside a bracket-delimited class.
+   *
+   * Called on non-empty input.
+   */
+  private C parseClassUnion() throws ParseException {
+    C union = parseCharacterRange();
+
+    // Keep parsing ranges until a lower priority construct is encountered
+    union_loop: while (position < length) {
+      switch (input.charAt(position)) {
+        // Intersection
+        case '&':
+          if (position + 1 < length && input.charAt(position + 1) == '&') {
+            break union_loop;
+          }
+          break;
+
+        // End of class
+        case ']':
+          break union_loop;
+      }
+      union = visitor.visitUnion(union, parseCharacterRange());
+    }
+
+    return union;
   }
 
   /**

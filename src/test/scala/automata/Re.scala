@@ -2,10 +2,12 @@ package automata
 
 import scala.jdk.OptionConverters._
 import java.util.OptionalInt;
-// Follow https://www.labs.hpe.com/techreports/2012/HPL-2012-41R1.pdf
 
 sealed abstract class Re {
   def acceptRegex[A](regexVisitor: RegexVisitor[A, _]): A
+
+  /** Pretty-print the regular expression into a string pattern */
+  def rendered: String = acceptRegex(RegexPrinter).rendered
 }
 sealed abstract class CharClass extends Re {
   override def acceptRegex[A](regexVisitor: RegexVisitor[A, _]): A =
@@ -141,53 +143,59 @@ object Re extends RegexVisitor[Re, CharClass] {
     }
   }
 
+  /** Builtin character class */
+  final case class BuiltinClass(cls: CharClassVisitor.BuiltinClass) extends CharClass {
+    override def acceptCharClass[A](visitor: CharClassVisitor[A]): A =
+      visitor.visitBuiltinClass(cls)
+  }
+
   override def visitCharacter(codePoint: Int) =
-    Character(codePoint)
+    Re.Character(codePoint)
 
   override def visitRange(fromCodePoint: Int, toCodePoint: Int) =
-    CharacterRange(fromCodePoint, toCodePoint)
+    Re.CharacterRange(fromCodePoint, toCodePoint)
 
   override def visitNegated(negate: CharClass) =
-    NegatedClass(negate)
+    Re.NegatedClass(negate)
 
   override def visitIntersection(lhs: CharClass, rhs: CharClass) =
-    IntersectionClass(lhs, rhs)
+    Re.IntersectionClass(lhs, rhs)
 
   override def visitUnion(lhs: CharClass, rhs: CharClass) =
-    UnionClass(lhs, rhs)
+    Re.UnionClass(lhs, rhs)
 
   override def visitEpsilon() =
-    Epsilon
+    Re.Epsilon
 
   override def visitConcatenation(lhs: Re, rhs: Re) =
-    Concat(lhs, rhs)
+    Re.Concat(lhs, rhs)
 
   override def visitAlternation(lhs: Re, rhs: Re) =
-    Alternation(lhs, rhs)
+    Re.Alternation(lhs, rhs)
 
   override def visitKleene(lhs: Re, isLazy: Boolean) =
-    Kleene(lhs, isLazy)
+    Re.Kleene(lhs, isLazy)
 
   override def visitOptional(lhs: Re, isLazy: Boolean) =
-    Optional(lhs, isLazy)
+    Re.Optional(lhs, isLazy)
 
   override def visitPlus(lhs: Re, isLazy: Boolean) =
-    Plus(lhs, isLazy)
+    Re.Plus(lhs, isLazy)
 
   override def visitRepetition(lhs: Re, atLeast: Int, atMost: OptionalInt, isLazy: Boolean) =
-    Repetition(lhs, atLeast, atMost.toScala, isLazy)
+    Re.Repetition(lhs, atLeast, atMost.toScala, isLazy)
 
   override def visitGroup(arg: Re, groupIndex: OptionalInt) =
-    if (groupIndex.isPresent()) Group(arg, groupIndex.getAsInt()) else arg
+    if (groupIndex.isPresent()) Re.Group(arg, groupIndex.getAsInt()) else arg
 
   override def visitBoundary(boundary: RegexVisitor.Boundary) =
-    Boundary(boundary)
+    Re.Boundary(boundary)
 
   override def visitCharacterClass(cls: CharClass) =
     cls
 
   override def visitBuiltinClass(cls: CharClassVisitor.BuiltinClass) =
-    cls.desugar(this)
+    Re.BuiltinClass(cls)
 
   def parse(src: String): Re = RegexParser.parse(Re, src)
 }

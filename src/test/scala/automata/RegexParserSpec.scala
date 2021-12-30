@@ -2,8 +2,10 @@ package automata
 
 import org.scalactic.source.Position
 import org.scalatest.funspec.AnyFunSpec
+import org.scalatestplus.scalacheck.ScalaCheckDrivenPropertyChecks
+import scala.jdk.CollectionConverters._
 
-class RegexParserSpec extends AnyFunSpec {
+class RegexParserSpec extends AnyFunSpec with ScalaCheckDrivenPropertyChecks with ReGenerator {
 
   private def testParse(
     input: String,
@@ -31,7 +33,6 @@ class RegexParserSpec extends AnyFunSpec {
       testParse("\\f", Re.Character('\f'))
       testParse("\\t", Re.Character('\t'))
       testParse("\\r", Re.Character('\r'))
-      testParse("\\v", Re.Character('\u000b'))
     }
 
     describe("hexadecimal codes") {
@@ -43,8 +44,16 @@ class RegexParserSpec extends AnyFunSpec {
   }
 
   describe("boundaries") {
-    testParse("^", Re.Boundary(RegexVisitor.Boundary.BEGINNING))
-    testParse("$", Re.Boundary(RegexVisitor.Boundary.END))
+    val boundaries = RegexVisitor.Boundary
+      .CHARACTERS
+      .asScala
+      .toList
+      .map { case (c, cls) => s"\\$c" -> cls }
+      .prepended("^" -> RegexVisitor.Boundary.BEGINNING_OF_LINE)
+      .prepended("$" -> RegexVisitor.Boundary.END_OF_LINE)
+    for ((boundaryStr, boundary) <- boundaries) {
+      testParse(boundaryStr, Re.Boundary(boundary))
+    }
   }
 
   describe("quantifiers") {
@@ -106,7 +115,7 @@ class RegexParserSpec extends AnyFunSpec {
       "^a\\+c",
       Re.Concat(
         Re.Concat(
-          Re.Concat(Re.Boundary(RegexVisitor.Boundary.BEGINNING), Re.Character('a')),
+          Re.Concat(Re.Boundary(RegexVisitor.Boundary.BEGINNING_OF_LINE), Re.Character('a')),
           Re.Character('+')
         ),
         Re.Character('c')
@@ -315,12 +324,9 @@ class RegexParserSpec extends AnyFunSpec {
       )
       testParse(
         "[ab&&a-zk]",
-        Re.UnionClass(
-          Re.UnionClass(
-            Re.Character('a'),
-            Re.IntersectionClass(Re.Character('b'), Re.CharacterRange('a', 'z'))
-          ),
-          Re.Character('k')
+        Re.IntersectionClass(
+          Re.UnionClass(Re.Character('a'), Re.Character('b')),
+          Re.UnionClass(Re.CharacterRange('a', 'z'), Re.Character('k'))
         )
       )
     }
@@ -328,20 +334,41 @@ class RegexParserSpec extends AnyFunSpec {
     describe("nested") {
       testParse(
         "[-\\]a-z&&[^q-u]z]",
-        Re.UnionClass(
+        Re.IntersectionClass(
           Re.UnionClass(
-            Re.UnionClass(
-              Re.Character('-'),
-              Re.Character(']')
-            ),
-            Re.IntersectionClass(
-              Re.CharacterRange('a', 'z'),
-              Re.NegatedClass(Re.CharacterRange('q', 'u'))
-            ),
+            Re.UnionClass(Re.Character('-'), Re.Character(']')),
+            Re.CharacterRange('a', 'z')
           ),
-          Re.Character('z')
+          Re.UnionClass(
+            Re.NegatedClass(Re.CharacterRange('q', 'u')),
+            Re.Character('z')
+          )
         )
       )
+    }
+  }
+
+  describe("builtin clases") {
+    val classes = CharClassVisitor.BuiltinClass
+      .CHARACTERS
+      .asScala
+      .toList
+      .map { case (c, cls) => s"\\$c" -> cls }
+      .prepended("." -> CharClassVisitor.BuiltinClass.DOT)
+    for ((clsStr, cls) <- classes) {
+      testParse(clsStr, Re.BuiltinClass(cls))
+    }
+  }
+
+  describe("arbitrary tests") {
+    it("regular expressions should round-trip through pretty-printing") {
+      forAll("regex", MinSuccessful(1024), SizeRange(512)) { (regex: Re) =>
+
+        val pattern = regex.rendered
+        val parsed = Re.parse(pattern)
+
+        assert(regex == parsed, "printed then re-parsed is the same as original")
+      }
     }
   }
 }

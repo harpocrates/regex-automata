@@ -18,6 +18,8 @@ lazy val root = (project in file("."))
       "org.ow2.asm" % "asm" % "9.2",
       "org.scala-lang" % "scala-library" % scalaVersion.value % Test,
       "org.scalatest" %% "scalatest" % "3.2.10" % Test,
+      "org.scalacheck" %% "scalacheck" % "1.15.4" % Test,
+      "org.scalatestplus" %% "scalacheck-1-15" % "3.2.10.0" % Test,
     ),
   )
 
