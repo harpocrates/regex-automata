@@ -265,8 +265,8 @@ public final class M3Dfa implements DotGraph<IntSet, CodeUnitTransition>, Dfa<In
   }
 
   @Override
-  public Map<CodeUnitTransition, Dfa.Transition<IntSet, CodeUnitTransition, Void>> transitionsMap(IntSet state) {
-    record Transition(IntSet targetState) implements Dfa.Transition<IntSet, CodeUnitTransition, Void> {
+  public Map<CodeUnitTransition, Dfa.Transition<IntSet, Void>> transitionsMap(IntSet state) {
+    record Transition(IntSet targetState) implements Dfa.Transition<IntSet, Void> {
       @Override
       public Void annotation() {
         return null;

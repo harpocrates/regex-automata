@@ -61,6 +61,15 @@ public record IntRange(
   }
 
   /**
+   * Count up the number of integers contained in this range.
+   *
+   * @return number of integers in the range
+   */
+  public int size() {
+    return upperBound - lowerBound + 1;
+  }
+
+  /**
    * Does this range contain the integer?
    *
    * @param integer integer

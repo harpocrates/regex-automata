@@ -87,7 +87,7 @@ public final class CompiledDfaCodegen {
    */
   public static final <Q3, Q4> ClassWriter generateDfaPatternSubclass(
     String pattern,
-    Dfa<Q3, CodeUnitTransition, ?> m3,
+    Dfa<Q3, CodeUnitTransition, Void> m3,
     Dfa<Q4, Q3, Iterable<GroupMarker>> m4,
     int groupCount,
     String className,
@@ -263,7 +263,7 @@ public final class CompiledDfaCodegen {
    */
   private static <Q3> void generateBytecodeForM3Automata(
     MethodVisitor mv,
-    Dfa<Q3, CodeUnitTransition, ?> m3,
+    Dfa<Q3, CodeUnitTransition, Void> m3,
     Map<Q3, Integer> m3StateIds,
     boolean printDebugInfo
   ) {
@@ -271,6 +271,11 @@ public final class CompiledDfaCodegen {
     final int offsetVar = 1; // Local tracking (descending) offset in string: `int offset`
     final int statesVar = 2; // Local tracking states seen: `int[] seen`
     final int statesOffsetVar = 3; // Local tracking (ascending) offset in states: `int statesOffset`
+    final int codeUnitTempVar = 4; // Local sometimes used in codeUnit tests: `char codeUnit`
+
+    // Help ASM infer the right signature
+    mv.visitInsn(Opcodes.ICONST_0);
+    mv.visitVarInsn(Opcodes.ISTORE, codeUnitTempVar);
 
     final Set<Q3> terminals = m3.accepting();
 
@@ -348,30 +353,7 @@ public final class CompiledDfaCodegen {
       mv.visitVarInsn(Opcodes.ILOAD, offsetVar);
       CHARAT_M.invokeMethod(mv, CHARSEQUENCE_CLASS_NAME);
 
-      // TODO: compile ranges more effectively
-      final var transitions = new TreeMap<Integer, Q3>();
-      for (var transition : m3.transitionsMap(state).entrySet()) {
-        for (var codeUnit : transition.getKey().codeUnitSet()) {
-          transitions.put(codeUnit, transition.getValue().targetState());
-        }
-      }
-
-      final int[] charValues = transitions
-        .keySet()
-        .stream()
-        .mapToInt((Integer c) -> c.intValue())
-        .toArray();
-      final Label[] stateLabels = transitions
-        .values()
-        .stream()
-        .map((Q3 targetState) -> q3States.get(targetState))
-        .toArray(Label[]::new);
-      makeBranch(
-        mv,
-        returnFailure, // no transition found means no match
-        charValues,
-        stateLabels
-      );
+      generateM3Transition(mv, codeUnitTempVar, m3.transitionsMap(state), q3States, returnFailure);
     }
 
     // Returning unsuccessfully
@@ -416,6 +398,168 @@ public final class CompiledDfaCodegen {
       System.err.println("[M3 compilation] state offsets: " + stateOffsets);
     }
   }
+
+  private static final int SMALL_RANGE_SIZE = 16;
+
+  /**
+   * Generate the branching logic associated with a state transition in M3.
+   *
+   * This is tricky because there are a lot of ways to do this (and there's not
+   * even an obvious way to rank the strategies since we're gunning for small
+   * bytecode output as well as fast execution). The approach currently taken
+   * is:
+   *
+   *   - list out all of the ranges in all of the transitions and split them
+   *     into those that are "small" and those that are "large" (threshold is
+   *     set to {@code SMALL_RANGE_SIZE})
+   *
+   *   - small transitions all get fed into one branching construct (usually a
+   *     {@code lookupswitch}, but {@code makeBranch} helps generate efficient
+   *     code for simpler cases).
+   *
+   *   - large transitions get grouped based on their target labels and are
+   *     then "tried" in order. Each group gets tried sequentially using range
+   *     checks (some effort is made to minimize the number of jumps).
+   *
+   * Some ideas for optimization to try:
+   *
+   *   - Keeping track of values that are no longer reachable. For example,
+   *     a simple negation such as {@code [^l]} doesn't need to match
+   *     {@code U+0-k} and {@code m-U+10FFFF} separately if {@code l} has
+   *     already been ruled out.
+   *
+   *   - Building a binary search tree of decisions for finding the range
+   *     containing the scrutinee.
+   *
+   * @param <Q3> state type for M3 automata
+   * @param mv method visitor
+   * @param codeUnitTempVar index of a temporary variable for a {@code char}
+   * @param transitionsMap transitions out of the current state
+   * @param q3States mapping of M3 states to their labels
+   * @param noTransitionFound what to do if the next character doesn't match
+   */
+  private static <Q3> void generateM3Transition(
+    MethodVisitor mv,
+    int codeUnitTempVar,
+    Map<CodeUnitTransition, Dfa.Transition<Q3, Void>> transitionsMap,
+    Map<Q3, Label> q3States,
+    Label noTransitionFound
+  ) {
+
+    // Merge transitions based on their target labels
+    final Map<Label, IntRangeSet> transitions = transitionsMap
+      .entrySet()
+      .stream()
+      .collect(
+        Collectors.groupingBy(
+          entry -> q3States.get(entry.getValue().targetState()),
+          Collectors.reducing(
+            IntRangeSet.EMPTY,
+            entry -> entry.getKey().codeUnitSet(),
+            (x, y) -> x.union(y)
+          )
+        )
+      );
+
+    // Contains entries from ranges that are SMALL_RANGE_SIZE or less elements
+    final var shortRanges = new TreeMap<Integer, Label>();
+
+    // Contains all (sorted) ranges keyed based on their label
+    final var longRanges = new HashMap<Label, List<IntRange>>();
+
+    // Split all ranges into `shortRanges` or `longRanges`
+    for (Map.Entry<Label, IntRangeSet> entry : transitions.entrySet()) {
+      final Label target = entry.getKey();
+      final var ranges = new ArrayList<IntRange>();
+
+      for (IntRange codeUnitRange : entry.getValue().ranges()) {
+        if (codeUnitRange.size() <= SMALL_RANGE_SIZE) {
+          for (Integer codeUnit : codeUnitRange) {
+            shortRanges.put(codeUnit, target);
+          }
+        } else {
+          ranges.add(codeUnitRange);
+        }
+      }
+
+      if (!ranges.isEmpty()) {
+        longRanges.put(target, ranges);
+      }
+    }
+
+    // Populate the variable if we know we have long ranges coming
+    if (!longRanges.isEmpty()) {
+      if (!shortRanges.isEmpty()) {
+        mv.visitInsn(Opcodes.DUP);
+      }
+      mv.visitIntInsn(Opcodes.ISTORE, codeUnitTempVar);
+    }
+
+    // Generate one switch/branch for all the short ranges
+    if (longRanges.isEmpty() || !shortRanges.isEmpty()) {
+
+      // If there are long ranges to check, dup the char and don't fallthrough to failure
+      final var lookupFallthrough = longRanges.isEmpty() ? noTransitionFound : new Label();
+
+      final int[] codeUnitValues = shortRanges
+        .keySet()
+        .stream()
+        .mapToInt((Integer c) -> c.intValue())
+        .toArray();
+      final Label[] stateLabels = shortRanges
+        .values()
+        .stream()
+        .toArray(Label[]::new);
+      makeBranch(
+        mv,
+        lookupFallthrough,
+        codeUnitValues,
+        stateLabels
+      );
+
+      // If there are long ranges, place the fallthrough label
+      if (!longRanges.isEmpty()) {
+        mv.visitLabel(lookupFallthrough);
+      }
+    }
+
+    if (!longRanges.isEmpty()) {
+
+      // Generate one check per set of ranges and try them sequentially
+      for (Map.Entry<Label, List<IntRange>> labelRanges : longRanges.entrySet()) {
+
+        boolean firstIteration = true;
+        for (IntRange range : labelRanges.getValue()) {
+
+          // lowerBound - x
+          pushConstantInt(mv, range.lowerBound() - 1);
+          mv.visitIntInsn(Opcodes.ILOAD, codeUnitTempVar);
+          mv.visitInsn(Opcodes.ISUB);
+
+          // x - upperBound
+          mv.visitIntInsn(Opcodes.ILOAD, codeUnitTempVar);
+          pushConstantInt(mv, range.upperBound() + 1);
+          mv.visitInsn(Opcodes.ISUB);
+
+          // (lowerBound - x) & (x - upperBound)
+          mv.visitInsn(Opcodes.IAND);
+
+          // acc = acc | ((lowerBound - x) & (x - upperBound))
+          if (firstIteration) {
+            firstIteration = false;
+          } else {
+            mv.visitInsn(Opcodes.IOR);
+          }
+        }
+
+        // TODO: document the range trick
+        mv.visitJumpInsn(Opcodes.IFLT, labelRanges.getKey());
+      }
+
+      mv.visitJumpInsn(Opcodes.GOTO, noTransitionFound);
+    }
+  }
+
 
   /**
    * Generate the method body associated with simulating an M4 automata.

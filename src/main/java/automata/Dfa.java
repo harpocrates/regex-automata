@@ -13,7 +13,7 @@ import java.util.function.BiConsumer;
  */
 public interface Dfa<Q, E, T> {
 
-  interface Transition<Q, E, T> {
+  interface Transition<Q, T> {
 
     /**
      * Target of the transition
@@ -77,7 +77,7 @@ public interface Dfa<Q, E, T> {
    * @param state state inside the DFA
    * @return map of alphabet symbols to transitions
    */
-  Map<E, Transition<Q, E, T>> transitionsMap(Q state);
+  Map<E, Transition<Q, T>> transitionsMap(Q state);
 
   /**
    * Run the a DFA either to completion or to a stuck state
@@ -101,7 +101,7 @@ public interface Dfa<Q, E, T> {
 
     while (input.hasNext()) {
       final E e = input.next();
-      final Transition<Q, E, T> transition = dfa.transitionsMap(currentState).get(e);
+      final Transition<Q, T> transition = dfa.transitionsMap(currentState).get(e);
 
       // No transition found
       if (transition == null) {

@@ -8,7 +8,7 @@ import scala.jdk.CollectionConverters._
 trait ReGenerator extends ArbitraryExtensions {
 
   def generateBoundaries: Boolean = true
-  
+
   def generateBuiltinClasses: Boolean = true
 
   def maximumRangeSize: Option[Int] = None
@@ -63,7 +63,7 @@ trait ReGenerator extends ArbitraryExtensions {
    */
   def renumberGroups(input: Re): Re = {
     var lastIndex = -1
-  
+
     def nextIndex(): Int = {
       lastIndex += 1
       lastIndex

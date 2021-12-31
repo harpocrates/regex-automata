@@ -18,7 +18,7 @@ final public class M4Dfa implements DotGraph<Integer, M4Transition>, Dfa<Integer
   public record Transition(
     Integer targetState,
     List<GroupMarker> annotation
-  ) implements Dfa.Transition<Integer, IntSet, Iterable<GroupMarker>> { }
+  ) implements Dfa.Transition<Integer, Iterable<GroupMarker>> { }
 
   /**
    * State transitions, indexed along starting nodes.
@@ -301,7 +301,7 @@ final public class M4Dfa implements DotGraph<Integer, M4Transition>, Dfa<Integer
   }
 
   @Override
-  public Map<IntSet, Dfa.Transition<Integer, IntSet, Iterable<GroupMarker>>> transitionsMap(Integer state) {
+  public Map<IntSet, Dfa.Transition<Integer, Iterable<GroupMarker>>> transitionsMap(Integer state) {
     return states
       .get(state)
       .entrySet()

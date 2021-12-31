@@ -130,6 +130,18 @@ class RegexSpec extends AnyFunSpec {
     )
   )
 
+  // Matching character classes that are too big to enumerate
+  testMatching(
+    pattern = "a.c",
+    expectedGroupCount = 0,
+    inputs = ListMap(
+      "abc" -> Some(Nil),
+      "a𐐷c" -> Some(Nil),
+      "ab" -> None,
+      "a\uD801\uD801b" -> None
+    )
+  )
+
   // Matching phone numbers
   testMatching(
     pattern = raw"(?:\+?(\d{1,3}))?[-. (]*(\d{3})[-. )]*(\d{3})[-. ]*(\d{4})(?: *x(\d+))?",
