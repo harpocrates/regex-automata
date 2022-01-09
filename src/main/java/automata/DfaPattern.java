@@ -98,36 +98,29 @@ public interface DfaPattern {
 
     // Intermediate states
     public final M1Dfa m1;
-    public final M2Nfa m2;
-    public final M3Dfa m3;
-    public final M4Dfa m4;
-
+    public final TDFA dfa;
 
     public String pattern() {
       return pattern;
     }
 
     public boolean checkMatch(CharSequence input) {
-      return m3.checkSimulate(input, printDebugInfo);
+      return dfa.checkSimulate(input, printDebugInfo);
     }
 
     public ArrayMatchResult captureMatch(CharSequence input) {
-      final String inputStr = input.toString();
-      var m3Path = m3.captureSimulate(inputStr, printDebugInfo);
-      return m3Path == null ? null : m4.simulate(inputStr, m3Path, printDebugInfo);
+      return dfa.captureSimulate(input, printDebugInfo);
     }
 
     public int groupCount() {
-      return m4.groupCount();
+      return dfa.groupCount;
     }
 
     public InterpretableDfaPattern(String pattern, boolean printDebugInfo) throws ParseException {
       this.pattern = pattern;
       this.printDebugInfo = printDebugInfo;
       this.m1 = M1Dfa.parse(this.pattern);
-      this.m2 = M2Nfa.fromM1(this.m1);
-      this.m3 = M3Dfa.fromM2(this.m2);
-      this.m4 = M4Dfa.fromM2M3(this.m2, this.m3);
+      this.dfa = TDFA.fromTNFA(this.m1);
     }
 
     public InterpretableDfaPattern(String pattern) throws ParseException {

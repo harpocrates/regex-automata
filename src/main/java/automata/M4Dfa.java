@@ -251,7 +251,7 @@ final public class M4Dfa implements DotGraph<Integer, M4Transition>, Dfa<Integer
       throw new IllegalStateException("Invalid non-final state " + currentState);
     }
 
-    return new ArrayMatchResult(input.toString(), captureGroups);
+    return new ArrayMatchResult(input, captureGroups);
   }
 
   @Override

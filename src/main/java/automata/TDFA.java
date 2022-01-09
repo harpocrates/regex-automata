@@ -45,25 +45,46 @@ public class TDFA implements DotGraph<Integer, SimpleImmutableEntry<CodeUnitTran
   public final Map<Integer, List<TagCommand>> finalStates;
 
   /**
-   * Initial state in the DFA.
+   * Index of the initial state inside {@code states}.
    */
   public final int initialState;
+
+  /**
+   * Count of groups in the DFA.
+   */
+  public final int groupCount;
 
   public TDFA(
     Map<Integer, Map<CodeUnitTransition, TaggedTransition>> states,
     Map<Integer, List<TagCommand>> finalStates,
-    int initialState
+    int initialState,
+    int groupCount
   ) {
     this.states = states;
     this.finalStates = finalStates;
     this.initialState = initialState;
+    this.groupCount = groupCount;
   }
 
-  public Map<GroupMarker, Integer> simulate(CharSequence input) {
+  /**
+   * Run against an input and extra capture groups.
+   *
+   * @param input input test string
+   * @param printDebugInfo print to STDERR a trace of what is happening
+   * @return match results
+   */
+  public ArrayMatchResult captureSimulate(
+    CharSequence input,
+    boolean printDebugInfo
+  ) {
     int currentState = initialState;
     int position = 0;
     final int length = input.length();
     final var registers = new HashMap<Register, Integer>();
+
+    if (printDebugInfo) {
+      System.err.println("[TDFA] starting run on: " + input);
+    }
 
     while (position < length) {
       final char codeUnit = input.charAt(position);
@@ -76,23 +97,31 @@ public class TDFA implements DotGraph<Integer, SimpleImmutableEntry<CodeUnitTran
         .filter(entry -> entry.getKey().codeUnitSet().contains(codeUnit))
         .findFirst();
       if (!matchingTransition.isPresent()) {
+        if (printDebugInfo) {
+          System.err.println("[TDFA] ending run at " + currentState + "; no transition for " + codeUnit);
+        }
         return null;
       }
       final var tagged = matchingTransition.get().getValue();
 
       // Apply the commands associated with the tarnsition
       for (var command : tagged.commands()) {
+        // TODO: log command
         command.interpret(registers, position);
       }
 
       // Update the DFA state and position
       currentState = tagged.targetState();
+      if (printDebugInfo) {
+        System.err.println("[TDFA] entering " + currentState);
+      }
       position++;
     }
 
     // Check whether we are in an accepting state
     final var commands = finalStates.get(currentState);
     if (commands == null) {
+      // TODO: log command
       return null;
     }
 
@@ -100,17 +129,63 @@ public class TDFA implements DotGraph<Integer, SimpleImmutableEntry<CodeUnitTran
     for (var command : commands) {
       command.interpret(registers, position);
     }
-    return registers
-      .entrySet()
-      .stream()
-      .flatMap(r -> {
-        if (r.getKey() instanceof GroupMarker g) {
-          return Stream.of(new SimpleImmutableEntry<>(g, r.getValue()));
-        } else {
-          return Stream.empty();
+
+    // Construct the match
+    final int[] offsets = new int[groupCount * 2];
+    for (int i = 0; i < groupCount; i++) {
+      offsets[2 * i] = registers.get(new GroupMarker(true, i));
+      offsets[2 * i + 1] = registers.get(new GroupMarker(false, i));
+    }
+    return new ArrayMatchResult(input, offsets);
+  }
+
+  /**
+   * Run against an input check if it matches.
+   *
+   * @param input input test string
+   * @param printDebugInfo print to STDERR a trace of what is happening
+   * @return match results
+   */
+  public boolean checkSimulate(
+    CharSequence input,
+    boolean printDebugInfo
+  ) {
+    int currentState = initialState;
+    int position = 0;
+    final int length = input.length();
+
+    if (printDebugInfo) {
+      System.err.println("[TDFA] starting run on: " + input);
+    }
+
+    while (position < length) {
+      final char codeUnit = input.charAt(position);
+
+      // Find the matching code unit transition
+      final var matchingTransition = states
+        .get(currentState)
+        .entrySet()
+        .stream()
+        .filter(entry -> entry.getKey().codeUnitSet().contains(codeUnit))
+        .findFirst();
+      if (!matchingTransition.isPresent()) {
+        if (printDebugInfo) {
+          System.err.println("[TDFA] ending run at " + currentState + "; no transition for " + codeUnit);
         }
-      })
-      .collect(Collectors.toMap(SimpleImmutableEntry::getKey, SimpleImmutableEntry::getValue));
+        return false;
+      }
+      final var tagged = matchingTransition.get().getValue();
+
+      // Update the DFA state and position
+      currentState = tagged.targetState();
+      if (printDebugInfo) {
+        System.err.println("[TDFA] entering " + currentState);
+      }
+      position++;
+    }
+
+    // Check whether we are in an accepting state
+    return finalStates.containsKey(currentState);
   }
 
   /**
@@ -299,7 +374,6 @@ public class TDFA implements DotGraph<Integer, SimpleImmutableEntry<CodeUnitTran
 
     while (!toVisit.isEmpty()) {
       final DfaState nextState = toVisit.pop();
-      System.out.println("Visiting " + nextState);
 
       // For each lookahead tag in this state, generate a fresh register
       // Only contains keys which are lookahead tags
@@ -449,7 +523,6 @@ public class TDFA implements DotGraph<Integer, SimpleImmutableEntry<CodeUnitTran
             .collect(Collectors.toUnmodifiableList());
 
           // Adjust the transition to point to the duplicated state
-          System.out.println("" + codeUnit + " => " + new TaggedTransition(commands, duplicateDfaState.dfaStateId));
           transitionsFromThisDfaState.put(
             codeUnit,
             new TaggedTransition(commands, duplicateDfaState.dfaStateId)
@@ -467,7 +540,6 @@ public class TDFA implements DotGraph<Integer, SimpleImmutableEntry<CodeUnitTran
             codeUnit,
             new TaggedTransition(commands, targetDfaState.dfaStateId)
           );
-          System.out.println("" + codeUnit + " => " + new TaggedTransition(commands, targetDfaState.dfaStateId));
 
           // Record the new DFA state and push it onto the stack to visit
           seenStates
@@ -478,7 +550,7 @@ public class TDFA implements DotGraph<Integer, SimpleImmutableEntry<CodeUnitTran
       }
     }
 
-    return new TDFA(states, finalStates, initialState);
+    return new TDFA(states, finalStates, initialState, groupMarkers.size() / 2);
   }
 
   @Override
