@@ -81,7 +81,7 @@ public interface DotGraph<V, E> {
     final Iterable<Edge<V, E>> es = () -> edges().iterator();
     for (Edge<V, E> edge : es) {
       final var from = escapeId(edge.from() == null ? ("_gen" + ++generated) : edge.from().toString());
-      final var to = escapeId(edge.to() == null ? ("_gen" + generated++) : edge.to().toString());
+      final var to = escapeId(edge.to() == null ? ("_gen" + ++generated) : edge.to().toString());
       final var label = renderEdgeLabel(edge);
       builder.append("  " + from + " -> " + to + " [label = <" + label + ">];\n");
     }

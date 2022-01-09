@@ -16,8 +16,6 @@ class RegexSpec extends AnyFunSpec {
     pos: Position
   ): Unit = {
     def testUsing(p: DfaPattern): Unit = {
-      assert(expectedGroupCount == p.groupCount, "count of capture groups in pattern")
-
       for ((input, expectedOutput) <- inputs) {
 
         // ScalaTest chokes if a test name is an invalid UTF-16 string, so patch those
@@ -39,10 +37,12 @@ class RegexSpec extends AnyFunSpec {
             case Some(groups) =>
               assert(matches, "checkMatch should successfully match")
               assert(matched != null, "captureMatch should return a non-null match")
+              assert(expectedGroupCount == matched.groupCount, "count of capture groups in pattern")
 
+              val patchedGroups = (0, input.length, input) +: groups
               assert(groups.length == matched.groupCount)
               for (i <- 0 until groups.length) {
-                val (expectedStart, expectedEnd, expectedCapture) = groups(i)
+                val (expectedStart, expectedEnd, expectedCapture) = patchedGroups(i)
                 assert(matched.start(i) == expectedStart, s"start index of capture group $i")
                 assert(matched.end(i) == expectedEnd, s"end index of capture group $i")
                 assert(matched.group(i) == expectedCapture, s"value of capture group $i")
@@ -139,6 +139,34 @@ class RegexSpec extends AnyFunSpec {
       "a𐐷c" -> Some(Nil),
       "ab" -> None,
       "a\uD801\uD801b" -> None
+    )
+  )
+
+  // Matching decimal numbers divisble by 4
+  testMatching(
+    pattern = raw"-?(?:\d*[02468][048]|\d*[13579][26]|[048])",
+    expectedGroupCount = 0,
+    inputs = ListMap(
+      "0" -> Some(Nil),
+      "3" -> None,
+      "4" -> Some(Nil),
+      "21" -> None,
+      "1484" -> Some(Nil),
+      "3503" -> None,
+      "123456" -> Some(Nil)
+    )
+  )
+
+  // Matching binary numbers divisible by 7
+  testMatching(
+    pattern = raw"(?:0|111|100(?:(?:1|00)0)*011|(?:101|100(?:(?:1|00)0)*(?:1|00)1)(?:1(?:(?:1|00)0)*(?:1|00)1)*(?:01|1(?:(?:1|00)0)*011)|(?:110|100(?:(?:1|00)0)*010|(?:101|100(?:(?:1|00)0)*(?:1|00)1)(?:1(?:(?:1|00)0)*(?:1|00)1)*(?:00|1(?:(?:1|00)0)*010))(?:1|0(?:1(?:(?:1|00)0)*(?:1|00)1)*(?:00|1(?:(?:1|00)0)*010))*0(?:1(?:(?:1|00)0)*(?:1|00)1)*(?:01|1(?:(?:1|00)0)*011))*",
+    expectedGroupCount = 0,
+    inputs = ListMap(
+      Integer.toBinaryString(0) -> Some(Nil),
+      Integer.toBinaryString(7 * 34 + 4) -> None,
+      Integer.toBinaryString(7 * 73) -> Some(Nil),
+      Integer.toBinaryString(7 * 129 + 2) -> None,
+      Integer.toBinaryString(7 * 132) -> Some(Nil),
     )
   )
 

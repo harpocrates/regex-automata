@@ -2,24 +2,58 @@ package automata;
 
 import java.util.Iterator;
 import java.util.stream.IntStream;
+import java.util.stream.Stream;
 import java.util.regex.MatchResult;
 
-// TODO: throw `IndexOutOfBoundsException` in start(I), end(I), group(I)
-// TODO: revisit what the first group is supposed to be
 public class ArrayMatchResult implements MatchResult {
-  private final String matchedString;
 
-  /** Starts offsets are stored at even indices and end offsets at odd indices */
-  public final int[] offsets;
+  /**
+   * Source text against which the regular expression was run.
+   */
+  public final CharSequence sourceText;
 
-  public ArrayMatchResult(String matchedString, int[] offsets) {
-    this.matchedString = matchedString;
+  /**
+   * Offsets of start/end groups in the source text.
+   *
+   * Offsets for the start of capture groups are stored at even indices while
+   * offsets for the end of capture groups are stored at odd indices. Start
+   * offsets are inclusive and end offsets are not inclusive.
+   *
+   * There is always at least one start and end offset (representing where the
+   * pattern started and ended matching).
+   */
+  private final int[] offsets;
+
+  /**
+   * Count of capture groups in the pattern.
+   *
+   * The length of {@code offsets} divided by two minus one.
+   */
+  private final int groupCount;
+
+  public ArrayMatchResult(CharSequence sourceText, int[] offsets) {
+    final int offsetsLength = offsets.length;
+    if ((offsetsLength & 1) != 0 || offsetsLength < 2) {
+      throw new IllegalArgumentException("Offsets array must be even length and non-empty");
+    }
+
+    this.sourceText = sourceText;
     this.offsets = offsets;
+    this.groupCount = (offsetsLength >> 1) - 1;
+  }
+
+  /**
+   * Check that a group index is within the valid group bounds.
+   */
+  private void checkIndex(int groupIndex) throws IndexOutOfBoundsException {
+    if ((groupIndex | (groupCount - groupIndex)) < 0) {
+      throw new IndexOutOfBoundsException("No capture group " + groupIndex);
+    }
   }
 
   @Override
-  public int start(int group) {
-    return offsets[group << 1];
+  public int groupCount() {
+    return groupCount;
   }
 
   @Override
@@ -28,37 +62,54 @@ public class ArrayMatchResult implements MatchResult {
   }
 
   @Override
-  public int end(int group) {
-    return offsets[group << 1 | 1];
-  }
-
-  @Override
   public int end() {
     return offsets[1];
   }
 
   @Override
-  public String group(int i) {
-    int start = start(i);
-    int end = end(i);
-    return (start < 0 || end < 0) ? null : matchedString.substring(start, end);
-  }
-
-  @Override
   public String group() {
-    return group(0);
+    return sourceText.subSequence(start(), end()).toString();
   }
 
   @Override
-  public int groupCount() {
-    return offsets.length >> 1;
+  public int start(int groupIndex) throws IndexOutOfBoundsException {
+    checkIndex(groupIndex);
+    return startUnchecked(groupIndex);
   }
 
-  public Iterator<String> groups() {
+  @Override
+  public int end(int groupIndex) throws IndexOutOfBoundsException {
+    checkIndex(groupIndex);
+    return endUnchecked(groupIndex);
+  }
+
+  @Override
+  public String group(int groupIndex) throws IndexOutOfBoundsException {
+    checkIndex(groupIndex);
+    return groupUnchecked(groupIndex);
+  }
+
+  private int startUnchecked(int groupIndex) {
+    return offsets[groupIndex << 1];
+  }
+
+  private int endUnchecked(int groupIndex) {
+    return offsets[groupIndex << 1 | 1];
+  }
+
+  private String groupUnchecked(int groupIndex) {
+    int start = startUnchecked(groupIndex);
+    int end = endUnchecked(groupIndex);
+    return (start | end) < 0 ? null : sourceText.subSequence(start, end).toString();
+  }
+
+  /**
+   * Ordered stream of all of the groups in the match result.
+   */
+  public Stream<String> groups() {
     return IntStream
-      .range(0, groupCount())
-      .mapToObj(idx -> group(idx))
-      .iterator();
+      .rangeClosed(0, groupCount)
+      .mapToObj(this::groupUnchecked);
   }
 }
 

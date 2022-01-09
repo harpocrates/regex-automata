@@ -55,7 +55,7 @@ final public class M1Dfa implements DotGraph<Integer, M1Transition> {
 
   public static M1Dfa parse(String pattern) throws ParseException {
     final var builder = new Builder();
-    final var visited = RegexParser.parse(builder, pattern);
+    final var visited = RegexParser.parse(builder, pattern, true);
     return builder.constructDfa(visited);
   }
 
@@ -182,14 +182,14 @@ final public class M1Dfa implements DotGraph<Integer, M1Transition> {
    * smaller and often not connected.
    *
    * @param startingState state from which to initiate the directed search
-   * @return mapping from states reachable via path markers to those paths
+   * @return ordered mapping from states reachable via path markers to those paths
    */
-  public Map<Integer, PathMarkers> reachableViaPathMarkers(int startingState) {
+  public Map<Integer, PathMarkers> epsilonReachable(int startingState) {
     record ToVisit(int state, PathMarkers pathToState) { }
 
     final var seenStates = new HashSet<Integer>();
     final var toVisit = new Stack<ToVisit>();
-    final var output = new HashMap<Integer, PathMarkers>();
+    final var output = new LinkedHashMap<Integer, PathMarkers>();
 
     // Seed the DFS with the starting node
     toVisit.push(new ToVisit(startingState, PathMarkers.EMPTY));
@@ -224,6 +224,25 @@ final public class M1Dfa implements DotGraph<Integer, M1Transition> {
     }
 
     return output;
+  }
+
+  /**
+   * Compute all the group markers in the NFA.
+   *
+   * @return all group markers (even unreachable ones)
+   */
+  public Set<GroupMarker> groupMarkers() {
+    return states
+      .stream()
+      .flatMap(state -> state.keySet().stream())
+      .flatMap((M1Transition transition) -> {
+        if (transition instanceof GroupMarker groupMarker) {
+          return Stream.of(groupMarker);
+        } else {
+          return Stream.empty();
+        }
+      })
+      .collect(Collectors.toSet());
   }
 
   @Override

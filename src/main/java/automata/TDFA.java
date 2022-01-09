@@ -1,0 +1,559 @@
+package automata;
+
+import java.util.Map;
+import java.util.SortedMap;
+import java.util.SortedSet;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Stack;
+import java.util.TreeMap;
+import java.util.Set;
+import java.util.Collections;
+import java.util.List;
+import java.util.LinkedList;
+import java.util.Optional;
+import java.util.OptionalInt;
+import java.util.stream.Stream;
+import java.util.stream.Collectors;
+import java.util.stream.StreamSupport;
+import java.util.function.Function;
+import java.util.function.Supplier;
+import java.util.function.IntSupplier;
+import static java.util.AbstractMap.SimpleImmutableEntry;
+
+public class TDFA implements DotGraph<Integer, SimpleImmutableEntry<CodeUnitTransition, List<TagCommand>>> {
+
+  public record TaggedTransition(
+    List<TagCommand> commands,
+    int targetState
+  ) { }
+
+  /**
+   * Full set of states inside the tagged DFA.
+   *
+   * Each states maps sets of code units to a tagged transition. Every state in
+   * the DFA should be in this map, even if it does not have any outgoing
+   * transitions.
+   */
+  public final Map<Integer, Map<CodeUnitTransition, TaggedTransition>> states;
+
+  /**
+   * Accepting states in the DFA.
+   *
+   * Each accepting states has one final set of tag commands.
+   */
+  public final Map<Integer, List<TagCommand>> finalStates;
+
+  /**
+   * Initial state in the DFA.
+   */
+  public final int initialState;
+
+  public TDFA(
+    Map<Integer, Map<CodeUnitTransition, TaggedTransition>> states,
+    Map<Integer, List<TagCommand>> finalStates,
+    int initialState
+  ) {
+    this.states = states;
+    this.finalStates = finalStates;
+    this.initialState = initialState;
+  }
+
+  public Map<GroupMarker, Integer> simulate(CharSequence input) {
+    int currentState = initialState;
+    int position = 0;
+    final int length = input.length();
+    final var registers = new HashMap<Register, Integer>();
+
+    while (position < length) {
+      final char codeUnit = input.charAt(position);
+
+      // Find the matching code unit transition
+      final var matchingTransition = states
+        .get(currentState)
+        .entrySet()
+        .stream()
+        .filter(entry -> entry.getKey().codeUnitSet().contains(codeUnit))
+        .findFirst();
+      if (!matchingTransition.isPresent()) {
+        return null;
+      }
+      final var tagged = matchingTransition.get().getValue();
+
+      // Apply the commands associated with the tarnsition
+      for (var command : tagged.commands()) {
+        command.interpret(registers, position);
+      }
+
+      // Update the DFA state and position
+      currentState = tagged.targetState();
+      position++;
+    }
+
+    // Check whether we are in an accepting state
+    final var commands = finalStates.get(currentState);
+    if (commands == null) {
+      return null;
+    }
+
+    // Apply the final accepting commands
+    for (var command : commands) {
+      command.interpret(registers, position);
+    }
+    return registers
+      .entrySet()
+      .stream()
+      .flatMap(r -> {
+        if (r.getKey() instanceof GroupMarker g) {
+          return Stream.of(new SimpleImmutableEntry<>(g, r.getValue()));
+        } else {
+          return Stream.empty();
+        }
+      })
+      .collect(Collectors.toMap(SimpleImmutableEntry::getKey, SimpleImmutableEntry::getValue));
+  }
+
+  /**
+   * Row in a TDFA state construction.
+   *
+   * @param nfaState TNFA state (whose outgoing transition is {@code transition})
+   * @param registers which registers store tags (this always has all markers as keys)
+   * @param lookaheadOperations commands to apply before advancing the position
+   */
+  private record RowConfiguration(
+    int nfaState,
+    SortedMap<GroupMarker, Register> registersPerTag,
+    Set<GroupMarker> lookaheadOperations
+  ) { }
+
+  /**
+   * State in the TDFA.
+   *
+   * @param dfaStateId unique ID to identify the state
+   * @param rows rowconfigurations in the state
+   */
+  private record DfaState(
+    int dfaStateId,
+    List<RowConfiguration> rows
+  ) {
+
+    public List<Integer> nfaStates() {
+      return rows
+        .stream()
+        .mapToInt(RowConfiguration::nfaState)
+        .boxed()
+        .collect(Collectors.toUnmodifiableList());
+    }
+
+    public boolean containsNfaState(int nfaState) {
+      return rows.stream().anyMatch(r -> r.nfaState() == nfaState);
+    }
+
+    /**
+     * Check if this is the same state as another, up to register isomorphism.
+     *
+     * To be the same, the state must have the same TNFA states in the same
+     * priority (order), the same lookahead tags, and a bijection between
+     * registers must exist. The bijection is then used to map transitions to
+     * the "that" state into transitions to "this" state.
+     *
+     * @return map of registers from other state to this
+     */
+    public Map<Register, Register> isomorphicTo(DfaState that) {
+
+      final var thisRows = rows.iterator();
+      final var thatRows = that.rows.iterator();
+
+      // Mappings of registers
+      final var thisToThat = new HashMap<Register, Register>();
+      final var thatToThis = new HashMap<Register, Register>();
+
+      while (thisRows.hasNext() && thatRows.hasNext()) {
+        final var thisRow = thisRows.next();
+        final var thatRow = thatRows.next();
+
+        // Ordered NFA state must match
+        if (thisRow.nfaState() != thatRow.nfaState()) {
+          return null;
+        }
+
+        // Lookahead tags must match
+        if (!thisRow.lookaheadOperations().equals(thatRow.lookaheadOperations())) {
+          return null;
+        }
+
+        // Registers must match up to isomorphism
+        final var thisRegisters = thisRow.registersPerTag.values().iterator();
+        final var thatRegisters = thatRow.registersPerTag.values().iterator();
+
+        while (thisRegisters.hasNext() && thatRegisters.hasNext()) {
+          final Register thisRegister = thisRegisters.next();
+          final Register thatRegister = thatRegisters.next();
+
+          final Register thatPrevious = thisToThat.put(thisRegister, thatRegister);
+          if (!(thatPrevious == null || thatPrevious.equals(thatRegister))) {
+            return null;
+          }
+
+          final Register thisPrevious = thatToThis.put(thatRegister, thisRegister);
+          if (!(thisPrevious == null || thisPrevious.equals(thisRegister))) {
+            return null;
+          }
+        }
+
+        if (thisRegisters.hasNext() != thatRegisters.hasNext()) {
+          return null;
+        }
+      }
+
+      return (thisRows.hasNext() != thatRows.hasNext()) ? null : thatToThis;
+    }
+  }
+
+  public static TDFA fromTNFA(M1Dfa m1) {
+
+    final Set<GroupMarker> groupMarkers = m1.groupMarkers();
+
+    // Fresh TDFA states come from here
+    final IntSupplier dfaStateIdSupplier = new IntSupplier() {
+      int nextDfaState = 0;
+
+      @Override
+      public int getAsInt() {
+        return nextDfaState++;
+      }
+    };
+
+    // Fresh registers come from here
+    final Supplier<Register> registerSupplier = new Supplier<Register>() {
+      int nextRegister = 0;
+
+      @Override
+      public Register get() {
+        return new Register.Temporary(nextRegister++);
+      }
+    };
+
+    /* Every time we visit a new DFA state, we use its ordered set of NFA
+     * states to lookup the list of possibly matching DFA states. Next, we
+     * comb through these looking for a state that is isomorphic. If we find
+     * one, we merge with that state. If not, we add the state here (and push
+     * it onto the stack of states to visit with a fresh ID).
+     */
+    final var seenStates = new HashMap<List<Integer>, List<DfaState>>();
+    final var toVisit = new Stack<DfaState>();
+
+    // These only get populated after a state is popped off of `toVisit`
+    final var states = new HashMap<Integer, Map<CodeUnitTransition, TaggedTransition>>();
+    final var finalStates = new HashMap<Integer, List<TagCommand>>();
+    final int initialState = dfaStateIdSupplier.getAsInt();
+
+    // Mapping from a group marker to its _final_ register
+    final Map<GroupMarker, Register> groupRegisters = groupMarkers
+      .stream()
+      .collect(Collectors.toMap(
+        Function.identity(),
+        Function.identity()
+      ));
+
+    // Set up the initial state to visit
+    {
+      final SortedMap<GroupMarker, Register> initialRegisters = groupMarkers
+        .stream()
+        .collect(Collectors.toMap(
+          Function.identity(),
+          g -> registerSupplier.get(),
+          (v1, v2) -> { throw new IllegalStateException("cannot merge values"); },
+          TreeMap::new
+        ));
+
+      final var initialDfaState = new DfaState(
+        initialState,
+        m1.epsilonReachable(m1.initialState)
+          .entrySet()
+          .stream()
+          .map((Map.Entry<Integer, PathMarkers> entry) ->
+            new RowConfiguration(
+              entry.getKey(),
+              initialRegisters,
+              StreamSupport
+                .stream(entry.getValue().spliterator(), false)
+                .flatMap((PathMarker marker) -> {
+                  if (marker instanceof GroupMarker groupMarker) {
+                    return Stream.of(groupMarker);
+                  } else {
+                    return Stream.empty();
+                  }
+                })
+                .collect(Collectors.toSet())
+            )
+          )
+          .collect(Collectors.toList())
+      );
+
+      seenStates
+        .computeIfAbsent(initialDfaState.nfaStates(), k -> new LinkedList<>())
+        .add(initialDfaState);
+      toVisit.push(initialDfaState);
+    }
+
+    while (!toVisit.isEmpty()) {
+      final DfaState nextState = toVisit.pop();
+      System.out.println("Visiting " + nextState);
+
+      // For each lookahead tag in this state, generate a fresh register
+      // Only contains keys which are lookahead tags
+      final Map<GroupMarker, Register> lookaheadRegisters = nextState
+        .rows()
+        .stream()
+        .flatMap(row -> row.lookaheadOperations.stream())
+        .distinct()
+        .collect(Collectors.toMap(Function.identity(), m -> registerSupplier.get()));
+
+      final var transitions = new HashMap<CodeUnitTransition, Map.Entry<Set<Register>, DfaState>>();
+      for (final RowConfiguration row : nextState.rows()) {
+
+        // These are the registers that target row configurations will use
+        // Contains keys for every tag
+        final SortedMap<GroupMarker, Register> updatedRegisters = row
+          .registersPerTag()
+          .entrySet()
+          .stream()
+          .collect(Collectors.toMap(
+            Map.Entry::getKey,
+            e -> row.lookaheadOperations.contains(e.getKey()) ? lookaheadRegisters.get(e.getKey()) : e.getValue(),
+            (v1, v2) -> { throw new IllegalStateException("cannot merge values"); },
+            TreeMap::new
+          ));
+
+        // Based on the initial row's lookaheads, determine the tags
+        final Set<Register> transitionOperations = row
+          .lookaheadOperations
+          .stream()
+          .map(updatedRegisters::get)
+          .collect(Collectors.toSet());
+
+        // Check if the NFA state is accepting
+        if (row.nfaState == m1.finalState) {
+          final List<TagCommand> commands = Stream
+            .concat(
+              transitionOperations
+                .stream()
+                .<TagCommand>map(t -> new TagCommand.CurrentPosition(t)),
+              groupRegisters
+                .entrySet()
+                .stream()
+                .<TagCommand>map(m -> new TagCommand.Copy(m.getValue(), updatedRegisters.get(m.getKey())))
+            )
+            .collect(Collectors.toUnmodifiableList());
+
+          finalStates.put(nextState.dfaStateId(), commands);
+        }
+
+        // Explore all transitions out of the NFA state in this row.
+        for (final var codeUnitTransition : m1.states.get(row.nfaState).entrySet()) {
+
+          // Immediate code unit transition and the epsilon closure starting after it
+          final var codeUnit = (CodeUnitTransition) codeUnitTransition.getKey();
+          final int codeUnitTargetNfaState = codeUnitTransition.getValue();
+          final var epsilonClosure = m1
+            .epsilonReachable(codeUnitTargetNfaState)
+            .entrySet();
+
+          if (epsilonClosure.isEmpty()) {
+            continue;
+          }
+
+          // Find or create the WIP DFA state for this code unit
+          final var wipTransition = transitions.computeIfAbsent(
+            codeUnit,
+            k -> new SimpleImmutableEntry<>(
+              new HashSet<Register>(),
+              new DfaState(dfaStateIdSupplier.getAsInt(), new LinkedList<>())
+            )
+          );
+          final DfaState wipDfaState = wipTransition.getValue();
+          final Set<Register> wipSetToCurrentPos = wipTransition.getKey();
+
+          for (final Map.Entry<Integer, PathMarkers> epsilonReachable : epsilonClosure) {
+
+            final int nfaState = epsilonReachable.getKey();
+            final PathMarkers epsilonPath = epsilonReachable.getValue();
+
+            // Skip over NFA states which have already been reached via this code unit
+            if (wipDfaState.containsNfaState(nfaState)) {
+              continue;
+            }
+
+            // Construct the target row configuration
+            final var targetRow = new RowConfiguration(
+              nfaState,
+              updatedRegisters,
+              StreamSupport
+                .stream(epsilonPath.spliterator(), false)
+                .flatMap((PathMarker marker) -> {
+                  if (marker instanceof GroupMarker groupMarker) {
+                    return Stream.of(groupMarker);
+                  } else {
+                    return Stream.empty();
+                  }
+                })
+                .collect(Collectors.toSet())
+            );
+
+            wipDfaState.rows().add(targetRow);
+            wipSetToCurrentPos.addAll(transitionOperations);
+          }
+        }
+      }
+
+      // Build up the set of transitions from this DFA state
+      final var transitionsFromThisDfaState = new HashMap<CodeUnitTransition, TaggedTransition>();
+      states.put(nextState.dfaStateId, transitionsFromThisDfaState);
+      for (final var transition : transitions.entrySet()) {
+        final CodeUnitTransition codeUnit = transition.getKey();
+        final Set<Register> assignCurrentPos = transition.getValue().getKey();
+        final DfaState targetDfaState = transition.getValue().getValue();
+
+        // Look for a state into which the target state can be merged
+        final var duplicateOptStateMapping = seenStates
+          .getOrDefault(targetDfaState.nfaStates(), Collections.emptyList())
+          .stream()
+          .flatMap((DfaState dfaState) -> {
+            final var registerMapping = dfaState.isomorphicTo(targetDfaState);
+            if (registerMapping == null) {
+              return Stream.empty();
+            } else {
+              return Stream.of(new SimpleImmutableEntry<>(dfaState, registerMapping));
+            }
+          })
+          .findFirst();
+
+        if (duplicateOptStateMapping.isPresent()) {
+          final var duplicateStateMapping = duplicateOptStateMapping.get();
+          final var duplicateDfaState = duplicateStateMapping.getKey();
+          final var registerMapping = duplicateStateMapping.getValue();
+
+          // Commands will include renaming of registers + position captures
+          final List<TagCommand> commands = Stream
+            .concat(
+              assignCurrentPos
+                .stream()
+                .<TagCommand>map(t -> new TagCommand.CurrentPosition(t)),
+              registerMapping
+                .entrySet()
+                .stream()
+                .filter(m -> !m.getKey().equals(m.getValue()))
+                .<TagCommand>map(m -> new TagCommand.Copy(m.getValue(), m.getKey()))
+            )
+            .collect(Collectors.toUnmodifiableList());
+
+          // Adjust the transition to point to the duplicated state
+          System.out.println("" + codeUnit + " => " + new TaggedTransition(commands, duplicateDfaState.dfaStateId));
+          transitionsFromThisDfaState.put(
+            codeUnit,
+            new TaggedTransition(commands, duplicateDfaState.dfaStateId)
+          );
+        } else {
+
+          // Commands for position captures
+          final List<TagCommand> commands = assignCurrentPos
+            .stream()
+            .<TagCommand>map(t -> new TagCommand.CurrentPosition(t))
+            .collect(Collectors.toUnmodifiableList());
+
+          // Add the transition
+          transitionsFromThisDfaState.put(
+            codeUnit,
+            new TaggedTransition(commands, targetDfaState.dfaStateId)
+          );
+          System.out.println("" + codeUnit + " => " + new TaggedTransition(commands, targetDfaState.dfaStateId));
+
+          // Record the new DFA state and push it onto the stack to visit
+          seenStates
+            .computeIfAbsent(targetDfaState.nfaStates(), k -> new LinkedList<DfaState>())
+            .add(targetDfaState);
+          toVisit.push(targetDfaState);
+        }
+      }
+    }
+
+    return new TDFA(states, finalStates, initialState);
+  }
+
+  @Override
+  public Stream<Vertex<Integer>> vertices() {
+    return states
+      .keySet()
+      .stream()
+      .map(id -> new Vertex<>(id, finalStates.containsKey(id)));
+  }
+
+  @Override
+  public Stream<Edge<Integer, SimpleImmutableEntry<CodeUnitTransition, List<TagCommand>>>> edges() {
+
+    final Integer noState = null;
+    final CodeUnitTransition noCodeUnit = null;
+    final List<TagCommand> noCommands = Collections.emptyList();
+
+    final var initialEdge = new Edge<>(
+      noState,
+      initialState,
+      new SimpleImmutableEntry<>(noCodeUnit, noCommands)
+    );
+
+    final var finalEdges = finalStates
+      .entrySet()
+      .stream()
+      .map(entry ->
+        new Edge<>(
+          entry.getKey(),
+          noState,
+          new SimpleImmutableEntry<>(noCodeUnit, entry.getValue())
+        )
+      );
+
+    final var innerEdges = states
+      .entrySet()
+      .stream()
+      .flatMap(stateEntry ->
+        stateEntry
+          .getValue()
+          .entrySet()
+          .stream()
+          .map(transitionEntry ->
+            new Edge<>(
+              stateEntry.getKey(),
+              transitionEntry.getValue().targetState(),
+              new SimpleImmutableEntry<>(transitionEntry.getKey(), transitionEntry.getValue().commands())
+            )
+          )
+      );
+
+    return Stream
+      .of(Stream.of(initialEdge), finalEdges, innerEdges)
+      .flatMap(Function.identity());
+  }
+
+  @Override
+  public String renderEdgeLabel(Edge<Integer, SimpleImmutableEntry<CodeUnitTransition, List<TagCommand>>> edge) {
+    final var label = edge.label();
+    final var codeUnit = label.getKey();
+    final var commands = label.getValue();
+    final var builder = new StringBuilder();
+
+    if (codeUnit != null) {
+      builder.append(codeUnit.dotLabel());
+    }
+
+    if (codeUnit != null || !commands.isEmpty()) {
+      builder.append("&nbsp;/&nbsp;");
+    }
+
+    if (!commands.isEmpty()) {
+      builder.append(commands.stream().map(TagCommand::dotLabel).collect(Collectors.joining("; ")));
+    }
+
+    return builder.toString();
+  }
+}

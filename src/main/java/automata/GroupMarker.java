@@ -11,7 +11,17 @@ import java.util.stream.Collectors;
 public record GroupMarker(
   boolean isStart,
   int groupIndex
-) implements PathMarker {
+) implements PathMarker, Register, Comparable<GroupMarker> {
+
+  @Override
+  public int compareTo(GroupMarker other) {
+    final int groupCmp = Integer.compare(groupIndex, other.groupIndex);
+    if (groupCmp != 0) {
+      return groupCmp;
+    } else {
+      return Boolean.compare(isStart, other.isStart);
+    }
+  }
 
   @Override
   public String dotLabel() {

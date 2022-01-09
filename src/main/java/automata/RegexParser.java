@@ -35,11 +35,24 @@ public final class RegexParser<A, C> {
    *
    * @param visitor regex visitor used to accept bottom-up parsing progress
    * @param input regular expression pattern
+   * @param wrappingGroup is there an implicit outer group wrapping the regex
    * @return parsed regular expression
    */
-  public static<B, D> B parse(RegexVisitor<B, D> visitor, String input) throws ParseException {
+  public static<B, D> B parse(
+    RegexVisitor<B, D> visitor,
+    String input,
+    boolean wrappingGroup
+  ) throws ParseException {
     final var parser = new RegexParser<B, D>(visitor, input);
-    final B parsed = parser.parseAlternation();
+    if (wrappingGroup) {
+      parser.groupCount++;
+    }
+
+    B parsed = parser.parseAlternation();
+    if (wrappingGroup) {
+      parsed = visitor.visitGroup(parsed, OptionalInt.of(0));
+    }
+
     if (parser.position < parser.length) {
       throw new ParseException("Expected the end of the regular expression", parser.position);
     }

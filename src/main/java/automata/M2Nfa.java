@@ -64,7 +64,7 @@ public class M2Nfa implements DotGraph<Integer, M2Transition> {
     final var states = new HashMap<Integer, Map<CodeUnitTransition, Map<Integer, PathMarkers>>>();
 
     // Mapping of states reachable from the intial M1 state
-    final var initialStates = m1.reachableViaPathMarkers(m1.initialState);
+    final var initialStates = m1.epsilonReachable(m1.initialState);
 
     // Seed the DFS
     seenStates.addAll(initialStates.keySet());
@@ -79,7 +79,7 @@ public class M2Nfa implements DotGraph<Integer, M2Transition> {
         int to = transitionEntry.getValue();
 
         if (transitionEntry.getKey() instanceof CodeUnitTransition transition) {
-          var reachable = m1.reachableViaPathMarkers(to);
+          var reachable = m1.epsilonReachable(to);
           transitionMap.put(transition, Collections.unmodifiableMap(reachable));
 
           // Make sure we go visit all of the states we can reach over paths

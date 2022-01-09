@@ -220,13 +220,12 @@ public final class CompiledDfaCodegen {
       mv.visitTypeInsn(Opcodes.NEW, ARRAYMATCHRESULT_CLASS_NAME);
       mv.visitInsn(Opcodes.DUP);
       mv.visitVarInsn(Opcodes.ALOAD, 1);
-      TOSTRING_M.invokeMethod(mv, OBJECT_CLASS_NAME);
       mv.visitVarInsn(Opcodes.ALOAD, 2);
       mv.visitMethodInsn(
         Opcodes.INVOKESPECIAL,
         ARRAYMATCHRESULT_CLASS_NAME,
         "<init>",
-        "(Ljava/lang/String;[I)V",
+        "(Ljava/lang/CharSequence;[I)V",
         false
       );
       mv.visitInsn(Opcodes.ARETURN);
