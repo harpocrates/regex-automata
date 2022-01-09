@@ -51,6 +51,8 @@ public class TDFA implements DotGraph<Integer, SimpleImmutableEntry<CodeUnitTran
 
   /**
    * Count of groups in the DFA.
+   *
+   * TODO: clarify connection to `MatchResult.groupCount` (same or not?)
    */
   public final int groupCount;
 
@@ -186,6 +188,34 @@ public class TDFA implements DotGraph<Integer, SimpleImmutableEntry<CodeUnitTran
 
     // Check whether we are in an accepting state
     return finalStates.containsKey(currentState);
+  }
+
+  /**
+   * Full set of registers used in commands.
+   *
+   * @return set of every register
+   */
+  public Set<Register> registers() {
+    final Stream<TagCommand> innerCommands = states
+      .values()
+      .stream()
+      .flatMap(codeUnitTransitions -> codeUnitTransitions.values().stream())
+      .flatMap(taggedTransition -> taggedTransition.commands().stream());
+
+    final Stream<TagCommand> finalCommands = finalStates
+      .values()
+      .stream()
+      .flatMap(List::stream);
+
+    return Stream
+      .concat(innerCommands, finalCommands)
+      .flatMap((TagCommand command) -> {
+        final var builder = Stream.<Register>builder();
+        command.usedVariable().ifPresent(builder::accept);
+        command.definedVariable().ifPresent(builder::accept);
+        return builder.build();
+      })
+      .collect(Collectors.toSet());
   }
 
   /**

@@ -69,7 +69,7 @@ class PhoneNumbersBench {
       val m = compiledJava.matcher(testStrings(i))
       m.matches()
 
-      var j = 1
+      var j = 0
       val matchCount = m.groupCount()
       while (j < matchCount) {
         b.consume(m.start(j))

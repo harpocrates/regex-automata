@@ -17,9 +17,7 @@ import org.objectweb.asm.Type;
  *
  *   - handle `null` inputs
  *   - move to a `compiler` package
- *   - put all the M1, M2, M3, M4 stuff in that package
  *   - add utilities for generating `.class` files (eg. `Files.write(Paths.get(className), classBytes)`)
- *   - optimize the case where there are no groups to skip M4
  */
 public final class CompiledDfaCodegen {
 
@@ -39,8 +37,7 @@ public final class CompiledDfaCodegen {
   private static final Method CHECKMATCH_M = new Method("checkMatch", methodType(boolean.class, CharSequence.class), Opcodes.INVOKEINTERFACE);
   private static final Method CAPTUREMATCH_M = new Method("captureMatch", methodType(ArrayMatchResult.class, CharSequence.class), Opcodes.INVOKEINTERFACE);
   private static final Method CHECKMATCHSTATIC_M = new Method("checkMatchStatic", methodType(boolean.class, CharSequence.class), Opcodes.INVOKESTATIC);
-  private static final Method CAPTUREMATCHPATH_M = new Method("captureMatchPath", methodType(int[].class, CharSequence.class), Opcodes.INVOKESTATIC);
-  private static final Method CAPTUREMATCHGROUPS_M = new Method("captureMatchGroups", methodType(int[].class, int[].class), Opcodes.INVOKESTATIC);
+  private static final Method CAPTUREMATCHSTATIC_M = new Method("captureMatchStatic", methodType(ArrayMatchResult.class, CharSequence.class), Opcodes.INVOKESTATIC);
   private static final Method TOSTRING_M = new Method("toString", methodType(String.class), Opcodes.INVOKEVIRTUAL);
   private static final Method PRINTSTR_M = new Method("print", methodType(void.class, String.class), Opcodes.INVOKEVIRTUAL);
   private static final Method PRINTLNINT_M = new Method("println", methodType(void.class, int.class), Opcodes.INVOKEVIRTUAL);
@@ -75,21 +72,16 @@ public final class CompiledDfaCodegen {
   /**
    * Code generator for a compiled DFA pattern
    *
-   * @param <Q3> state type for M3 automata
-   * @param <Q4> state type for M4 automata
-   * @param m3 M3 DFA
-   * @param m4 M4 DFA
-   * @param groupCount how many groups are captured? (Must start at 0 and be consequtive)
+   * @param pattern initial regular expression pattern
+   * @param dfa tagged DFA
    * @param className name of the anonymous class to generate
    * @param classFlags class flags to set (visibility, `final`, `synthetic` etc.)
    * @param printDebugInfo print debug info and generate code which prints debug info to STDERR
    * @return class implementing `DfaPattern`
    */
-  public static final <Q3, Q4> ClassWriter generateDfaPatternSubclass(
+  public static final ClassWriter generateDfaPatternSubclass(
     String pattern,
-    Dfa<Q3, CodeUnitTransition, Void> m3,
-    Dfa<Q4, Q3, Iterable<GroupMarker>> m4,
-    int groupCount,
+    TDFA dfa,
     String className,
     int classFlags,
     boolean printDebugInfo
@@ -106,26 +98,8 @@ public final class CompiledDfaCodegen {
       new String[] { DFAPATTERN_CLASS_NAME }
     );
 
-    /* Map Q3 states into integer indices
-     *
-     * The optional output of M3 is an array tracking the path taken through
-     * the Q3 states. The obvious efficient way to represent each step of this
-     * path at runtime is to associate each Q3 state to a unique integer.
-     *
-     * We refer to this at the "state ID" of the Q3 state.
-     */
-    final Map<Q3, Integer> q3StateIds = m3
-      .allStates()
-      .stream()
-      .collect(Collectors.toUnmodifiableMap(
-        Function.<Q3>identity(),
-        new Function<Q3, Integer>() {
-          int m3NextState = 0;
-          public Integer apply(Q3 q3) {
-            return m3NextState++;
-          }
-        }
-      ));
+    // Set of all registers in the TDFA
+    final Set<Register> registers = dfa.registers();
 
     // Make constructor (which takes no arguments - the class has no state!)
     {
@@ -153,7 +127,7 @@ public final class CompiledDfaCodegen {
     {
       final var mv = GROUPCOUNT_M.newMethod(cw, Opcodes.ACC_PUBLIC);
       mv.visitCode();
-      mv.visitLdcInsn(groupCount);
+      mv.visitLdcInsn(dfa.groupCount);
       mv.visitInsn(Opcodes.IRETURN);
       mv.visitMaxs(0, 0);
       mv.visitEnd();
@@ -163,7 +137,7 @@ public final class CompiledDfaCodegen {
     {
       final var mv = CHECKMATCHSTATIC_M.newMethod(cw, Opcodes.ACC_PRIVATE);
       mv.visitCode();
-      generateBytecodeForM3Automata(mv, m3, null, printDebugInfo);
+      generateBytecodeForAutomata(mv, dfa, null, printDebugInfo);
       mv.visitMaxs(0, 0);
       mv.visitEnd();
     }
@@ -179,20 +153,11 @@ public final class CompiledDfaCodegen {
       mv.visitEnd();
     }
 
-    // `captureMatchPath` static helper method
+    // `captureMatchState` static helper method
     {
-      final var mv = CAPTUREMATCHPATH_M.newMethod(cw, Opcodes.ACC_PRIVATE);
+      final var mv = CAPTUREMATCHSTATIC_M.newMethod(cw, Opcodes.ACC_PRIVATE);
       mv.visitCode();
-      generateBytecodeForM3Automata(mv, m3, q3StateIds, printDebugInfo);
-      mv.visitMaxs(0, 0);
-      mv.visitEnd();
-    }
-
-    // `captureMatchGroups` static helper method
-    {
-      final var mv = CAPTUREMATCHGROUPS_M.newMethod(cw, Opcodes.ACC_PRIVATE);
-      mv.visitCode();
-      generateBytecodeForM4Automata(mv, m4, groupCount, q3StateIds, printDebugInfo);
+      generateBytecodeForAutomata(mv, dfa, registers, printDebugInfo);
       mv.visitMaxs(0, 0);
       mv.visitEnd();
     }
@@ -201,40 +166,9 @@ public final class CompiledDfaCodegen {
     {
       final var mv = CAPTUREMATCH_M.newMethod(cw, Opcodes.ACC_PUBLIC);
       mv.visitCode();
-
-      final Label failedToMatch = new Label();
-
-      // get the match path...
       mv.visitVarInsn(Opcodes.ALOAD, 1);
-      CAPTUREMATCHPATH_M.invokeMethod(mv, className);
-      mv.visitInsn(Opcodes.DUP);
-      mv.visitJumpInsn(Opcodes.IFNULL, failedToMatch);
-
-      // get the groups
-      CAPTUREMATCHGROUPS_M.invokeMethod(mv, className);
-      mv.visitInsn(Opcodes.DUP);
-      mv.visitJumpInsn(Opcodes.IFNULL, failedToMatch);
-      mv.visitVarInsn(Opcodes.ASTORE, 2);
-
-      // Construct the match result
-      mv.visitTypeInsn(Opcodes.NEW, ARRAYMATCHRESULT_CLASS_NAME);
-      mv.visitInsn(Opcodes.DUP);
-      mv.visitVarInsn(Opcodes.ALOAD, 1);
-      mv.visitVarInsn(Opcodes.ALOAD, 2);
-      mv.visitMethodInsn(
-        Opcodes.INVOKESPECIAL,
-        ARRAYMATCHRESULT_CLASS_NAME,
-        "<init>",
-        "(Ljava/lang/CharSequence;[I)V",
-        false
-      );
+      CAPTUREMATCHSTATIC_M.invokeMethod(mv, className);
       mv.visitInsn(Opcodes.ARETURN);
-
-      // Failure exit case
-      mv.visitLabel(failedToMatch);
-      mv.visitInsn(Opcodes.ACONST_NULL);
-      mv.visitInsn(Opcodes.ARETURN);
-
       mv.visitMaxs(0, 0);
       mv.visitEnd();
     }
@@ -243,125 +177,164 @@ public final class CompiledDfaCodegen {
     return cw;
   }
 
+  private static void generateBytecodeForCommand(
+    MethodVisitor mv,
+    TagCommand command,
+    int offsetVar,
+    Map<Register, Integer> locals,
+    boolean printDebugInfo
+  ) {
+    if (command instanceof TagCommand.Copy copy) {
+      mv.visitVarInsn(Opcodes.ILOAD, locals.get(copy.copyFrom()));
+      mv.visitVarInsn(Opcodes.ISTORE, locals.get(copy.assignTo()));
+
+      if (printDebugInfo) {
+        final var message = "[TDFA] copy " + copy.assignTo() + " <- " + copy.copyFrom() + " or ";
+        genPrintErrConstant(mv, message, false);
+        mv.visitVarInsn(Opcodes.ILOAD, locals.get(copy.copyFrom()));
+        genPrintErrInt(mv);
+      }
+    } else if (command instanceof TagCommand.CurrentPosition currentPos) {
+      mv.visitVarInsn(Opcodes.ILOAD, offsetVar);
+      mv.visitVarInsn(Opcodes.ISTORE, locals.get(currentPos.assignTo()));
+
+      if (printDebugInfo) {
+        final var message = "[TDFA] set current pos " + currentPos.assignTo() + " <- ";
+        genPrintErrConstant(mv, message, false);
+        mv.visitVarInsn(Opcodes.ILOAD, offsetVar);
+        genPrintErrInt(mv);
+      }
+    } else {
+      throw new IllegalArgumentException("Unknown command " + command);
+    }
+  }
+
   /**
-   * Generate the method body associated with simulating an M3 automata.
+   * Generate the method body associated with simulating the TDFA automata.
    *
-   * If `m3StateIds` is `null`, this produces a method that tracks nothing but
-   * offset in the string and just returns a boolean indicating match success
-   * or failure.
+   * If {@code registers} is {@code null}, this produces a method that tracks
+   * nothing but offset in the string and just returns a boolean indicating
+   * match success or failure. Otherwise, the tags on the DFA will be simulated
+   * using local variables and the final output of the generated method will
+   * be an {@code ArrayMatchResult} (which is {@code null} in the case of no
+   * match).
    *
-   * If `m3StateIds` is not `null`, this produces a method that will track an
-   * array of all of the states seen and then return this array (or `null` if
-   * the the automata doesn't end at a terminal state).
-   *
-   * @param <Q3> state type for M3 automata
    * @param mv method visitor (only argument is the input `CharSequence`)
-   * @param m3 M3 DFA
-   * @param m3StateIds state IDs - return a bool if null or an array of IDs if not null
+   * @param dfa tagged DFA
+   * @param registers registes in the tags (set to {@code null} to ignore tags)
    * @param printDebugInfo print debug info and generate code which prints debug info to STDERR
    */
-  private static <Q3> void generateBytecodeForM3Automata(
+  private static void generateBytecodeForAutomata(
     MethodVisitor mv,
-    Dfa<Q3, CodeUnitTransition, Void> m3,
-    Map<Q3, Integer> m3StateIds,
+    TDFA dfa,
+    Set<Register> registers,
     boolean printDebugInfo
   ) {
     final int inputVar = 0;  // Input argument: `CharSequence input`
-    final int offsetVar = 1; // Local tracking (descending) offset in string: `int offset`
-    final int statesVar = 2; // Local tracking states seen: `int[] seen`
-    final int statesOffsetVar = 3; // Local tracking (ascending) offset in states: `int statesOffset`
-    final int codeUnitTempVar = 4; // Local sometimes used in codeUnit tests: `char codeUnit`
+    final int offsetVar = 1; // Local tracking (ascending) offset in string: `int offset`
+    final int lengthVar = 2; // Local tracking max offset in input `int length`
+    final int codeUnitTempVar = 3; // Local sometimes used in codeUnit tests: `char codeUnit`
+    
+    // Mapping from register in the TDFA to the JVM locals in this method
+    final var locals = new HashMap<Register, Integer>();
+    if (registers != null) {
+      int nextLocal = 4;
+      for (final var register : registers) {
+        locals.put(register, nextLocal++);
+      }
+    }
 
-    // Help ASM infer the right signature
+    // Variable for offset in input
+    mv.visitInsn(Opcodes.ICONST_M1);
+    mv.visitVarInsn(Opcodes.ISTORE, offsetVar);
+
+    // Variable for length of input
+    mv.visitVarInsn(Opcodes.ALOAD, inputVar);
+    LENGTH_M.invokeMethod(mv, CHARSEQUENCE_CLASS_NAME);
+    mv.visitVarInsn(Opcodes.ISTORE, lengthVar);
+
+    // Help ASM infer the right signatures
+    // TODO: this is where register allocation to decrease registers matters
     mv.visitInsn(Opcodes.ICONST_0);
     mv.visitVarInsn(Opcodes.ISTORE, codeUnitTempVar);
-
-    final Set<Q3> terminals = m3.accepting();
+    for (final var local : locals.values()) {
+      mv.visitInsn(Opcodes.ICONST_M1);
+      mv.visitVarInsn(Opcodes.ISTORE, local);
+    }
 
     final Label returnFailure = new Label();
     final Label returnSuccess = new Label();
-    final Map<Q3, Label> q3States = m3
-      .allStates()
+    final Map<Integer, Label> stateLabels = dfa
+      .states
+      .keySet()
       .stream()
-      .collect(Collectors.toMap(
-        Function.<Q3>identity(),
-        (Q3 q3) -> new Label()
-      ));
+      .collect(Collectors.toMap(Function.<Integer>identity(), id -> new Label()));
 
-    // Track entry into M3
+    // Track entry into TDFA
     if (printDebugInfo) {
-      final var stateIds = (m3StateIds == null) ? "" : " (state IDs " + m3StateIds + ")";
-      genPrintErrConstant(mv, "[M3] starting run" + stateIds + " on: ", false);
+      final var localVars = (registers == null) ? "" : " (locals " + locals + ")";
+      genPrintErrConstant(mv, "[TDFA] starting run" + localVars + " on: ", false);
       mv.visitVarInsn(Opcodes.ALOAD, inputVar);
       TOSTRING_M.invokeMethod(mv, OBJECT_CLASS_NAME);
       genPrintErrString(mv);
     }
 
-    // Variable for offset in the string (starts at `str.length` and decrements to 0)
-    mv.visitVarInsn(Opcodes.ALOAD, inputVar);
-    LENGTH_M.invokeMethod(mv, CHARSEQUENCE_CLASS_NAME);
-    mv.visitVarInsn(Opcodes.ISTORE, offsetVar);
-
-    if (m3StateIds != null) {
-      // Variable for tracking states seen to far
-      mv.visitVarInsn(Opcodes.ILOAD, offsetVar);
-      mv.visitInsn(Opcodes.ICONST_1);
-      mv.visitInsn(Opcodes.IADD);
-      mv.visitIntInsn(Opcodes.NEWARRAY, Opcodes.T_INT);
-      mv.visitVarInsn(Opcodes.ASTORE, statesVar);
-
-      // Variable for offset in `seen` states (starts as 0 and increments to `str.length`)
-      mv.visitInsn(Opcodes.ICONST_0);
-      mv.visitVarInsn(Opcodes.ISTORE, statesOffsetVar);
-    }
-
     // Jump to the first state
-    mv.visitJumpInsn(Opcodes.GOTO, q3States.get(m3.initial()));
+    mv.visitJumpInsn(Opcodes.GOTO, stateLabels.get(dfa.initialState));
 
     // Lay out the blocks for each state
-    for (Map.Entry<Q3, Label> entry : q3States.entrySet()) {
+    for (Map.Entry<Integer, Label> entry : stateLabels.entrySet()) {
       mv.visitLabel(entry.getValue());
-      final Q3 state = entry.getKey();
+      final int state = entry.getKey();
 
       if (printDebugInfo) {
-        final var stateId = (m3StateIds == null) ? "" : " (ID: " + m3StateIds.get(state) + ")";
-        genPrintErrConstant(mv, "[M3] entering " + state + stateId, true);
+        genPrintErrConstant(mv, "[TDFA] entering " + state, true);
       }
 
-      // Store the state
-      if (m3StateIds != null) {
-        int stateId = m3StateIds.get(state);
-        assert stateId <= Short.MAX_VALUE : " state ID overflow";
-
-        mv.visitVarInsn(Opcodes.ALOAD, statesVar);
-        mv.visitVarInsn(Opcodes.ILOAD, statesOffsetVar);
-        pushConstantInt(mv, stateId);
-        mv.visitInsn(Opcodes.IASTORE);
-
-        // Increment the state offset (no need to worry about overflow - `offsetVar` tracks that)
-        mv.visitIincInsn(statesOffsetVar, 1);
-      }
-
-      // decrement the offset and, if it becomes neagtive, return whether we are in terminal state
-      mv.visitIincInsn(offsetVar, -1);
+      // increment the offset and, if it exceeds length, return whether we are in terminal state
+      final var finalCommands = dfa.finalStates.get(state);
+      mv.visitIincInsn(offsetVar, 1);
       mv.visitVarInsn(Opcodes.ILOAD, offsetVar);
-      mv.visitJumpInsn(Opcodes.IFLT, terminals.contains(state) ? returnSuccess : returnFailure);
+      mv.visitVarInsn(Opcodes.ILOAD, lengthVar);
+      if (finalCommands == null || registers == null) {
+        mv.visitJumpInsn(Opcodes.IF_ICMPGE, (finalCommands == null) ? returnFailure : returnSuccess);
+      } else {
+        final var notDone = new Label();
+        mv.visitJumpInsn(Opcodes.IF_ICMPLT, notDone);
+
+        // Execute final commands
+        for (final var command : finalCommands) {
+          generateBytecodeForCommand(mv, command, offsetVar, locals, printDebugInfo);
+        }
+        mv.visitJumpInsn(Opcodes.GOTO, returnSuccess);
+
+        mv.visitLabel(notDone);
+      }
 
       // get the next character
       mv.visitVarInsn(Opcodes.ALOAD, inputVar);
       mv.visitVarInsn(Opcodes.ILOAD, offsetVar);
       CHARAT_M.invokeMethod(mv, CHARSEQUENCE_CLASS_NAME);
 
-      generateM3Transition(mv, codeUnitTempVar, m3.transitionsMap(state), q3States, returnFailure);
+      generateDfaTransition(
+        mv,
+        codeUnitTempVar,
+        dfa.states.get(state),
+        stateLabels,
+        locals,
+        offsetVar,
+        returnFailure,
+        printDebugInfo
+      );
     }
 
     // Returning unsuccessfully
     mv.visitLabel(returnFailure);
     if (printDebugInfo) {
-      final var returned = (m3StateIds == null) ? "0" : "null";
-      genPrintErrConstant(mv, "[M3] exiting run (unsuccessful): " + returned, true);
+      final var returned = (registers == null) ? "0" : "null";
+      genPrintErrConstant(mv, "[TDFA] exiting run (unsuccessful): " + returned, true);
     }
-    if (m3StateIds == null) {
+    if (registers == null) {
       mv.visitInsn(Opcodes.ICONST_0);
       mv.visitInsn(Opcodes.IRETURN);
     } else {
@@ -371,37 +344,73 @@ public final class CompiledDfaCodegen {
 
     // Returning successfully
     mv.visitLabel(returnSuccess);
+
+    // Construct the array of results (if we're in that mode)
+    if (registers != null) {
+      pushConstantInt(mv, 2 * dfa.groupCount);
+      mv.visitIntInsn(Opcodes.NEWARRAY, Opcodes.T_INT);
+      mv.visitInsn(Opcodes.ICONST_M1);
+
+      // Each iteration, we start with the group array and the next index on the stack
+      for (int i = 0; i < dfa.groupCount; i++) {
+        for (var groupMarker : List.of(new GroupMarker(true, i), new GroupMarker(false, i))) {
+          mv.visitInsn(Opcodes.ICONST_1);
+          mv.visitInsn(Opcodes.IADD);
+
+          mv.visitInsn(Opcodes.DUP2);
+          mv.visitVarInsn(Opcodes.ILOAD, locals.get(groupMarker));
+          mv.visitInsn(Opcodes.IASTORE);
+        }
+      }
+
+      // Pop off the index (but not the result array)
+      mv.visitInsn(Opcodes.POP);
+    }
+
     if (printDebugInfo) {
-      genPrintErrConstant(mv, "[M3] exiting run (successful): ", false);
-      if (m3StateIds != null) {
-        mv.visitVarInsn(Opcodes.ALOAD, statesVar);
+      genPrintErrConstant(mv, "[TDFA] exiting run (successful): ", false);
+      if (registers != null) {
+        mv.visitInsn(Opcodes.DUP);
         INTARRTOSTRING_M.invokeMethod(mv, ARRAYS_CLASS_NAME);
         genPrintErrString(mv);
       } else {
         genPrintErrConstant(mv, "1", true);
       }
     }
-    if (m3StateIds == null) {
+
+    // Construct and return the final match result
+    if (registers == null) {
       mv.visitInsn(Opcodes.ICONST_1);
       mv.visitInsn(Opcodes.IRETURN);
     } else {
-      mv.visitVarInsn(Opcodes.ALOAD, statesVar);
+      mv.visitTypeInsn(Opcodes.NEW, ARRAYMATCHRESULT_CLASS_NAME);
+      mv.visitInsn(Opcodes.DUP_X1);
+      mv.visitInsn(Opcodes.SWAP);
+      mv.visitVarInsn(Opcodes.ALOAD, inputVar);
+      mv.visitInsn(Opcodes.SWAP);
+      mv.visitMethodInsn(
+        Opcodes.INVOKESPECIAL,
+        ARRAYMATCHRESULT_CLASS_NAME,
+        "<init>",
+        "(Ljava/lang/CharSequence;[I)V",
+        false
+      );
       mv.visitInsn(Opcodes.ARETURN);
     }
 
     if (printDebugInfo) {
-      final var stateOffsets = q3States
+      final var stateOffsets = stateLabels
         .entrySet()
         .stream()
         .collect(Collectors.toMap(Map.Entry::getKey, e -> e.getValue().getOffset()));
-      System.err.println("[M3 compilation] state offsets: " + stateOffsets);
+      System.err.println("[TDFA compilation] state offsets: " + stateOffsets);
     }
   }
 
   private static final int SMALL_RANGE_SIZE = 16;
 
   /**
-   * Generate the branching logic associated with a state transition in M3.
+   * Generate the branching logic associated with a state transition.
    *
    * This is tricky because there are a lot of ways to do this (and there's not
    * even an obvious way to rank the strategies since we're gunning for small
@@ -430,28 +439,36 @@ public final class CompiledDfaCodegen {
    *   - Building a binary search tree of decisions for finding the range
    *     containing the scrutinee.
    *
-   * @param <Q3> state type for M3 automata
    * @param mv method visitor
    * @param codeUnitTempVar index of a temporary variable for a {@code char}
    * @param transitionsMap transitions out of the current state
-   * @param q3States mapping of M3 states to their labels
+   * @param stateLabels mapping of DFA states to their labels
+   * @param locals mapping of tagged registers to their locals (empty if we should ignore tags)
    * @param noTransitionFound what to do if the next character doesn't match
    */
-  private static <Q3> void generateM3Transition(
+  private static void generateDfaTransition(
     MethodVisitor mv,
     int codeUnitTempVar,
-    Map<CodeUnitTransition, Dfa.Transition<Q3, Void>> transitionsMap,
-    Map<Q3, Label> q3States,
-    Label noTransitionFound
+    Map<CodeUnitTransition, TDFA.TaggedTransition> transitionsMap,
+    Map<Integer, Label> stateLabels,
+    Map<Register, Integer> locals,
+    int offsetVar,
+    Label noTransitionFound,
+    boolean printDebugInfo
   ) {
 
+    record TargetLabel(Label stateLabel, List<TagCommand> commands) { }
+
     // Merge transitions based on their target labels
-    final Map<Label, IntRangeSet> transitions = transitionsMap
+    final Map<TargetLabel, IntRangeSet> transitions = transitionsMap
       .entrySet()
       .stream()
       .collect(
         Collectors.groupingBy(
-          entry -> q3States.get(entry.getValue().targetState()),
+          entry -> new TargetLabel(
+            stateLabels.get(entry.getValue().targetState()),
+            (locals.isEmpty()) ? Collections.emptyList() : entry.getValue().commands()
+          ),
           Collectors.reducing(
             IntRangeSet.EMPTY,
             entry -> entry.getKey().codeUnitSet(),
@@ -461,14 +478,14 @@ public final class CompiledDfaCodegen {
       );
 
     // Contains entries from ranges that are SMALL_RANGE_SIZE or less elements
-    final var shortRanges = new TreeMap<Integer, Label>();
+    final var shortRanges = new TreeMap<Integer, TargetLabel>();
 
     // Contains all (sorted) ranges keyed based on their label
-    final var longRanges = new HashMap<Label, List<IntRange>>();
+    final var longRanges = new HashMap<TargetLabel, List<IntRange>>();
 
     // Split all ranges into `shortRanges` or `longRanges`
-    for (Map.Entry<Label, IntRangeSet> entry : transitions.entrySet()) {
-      final Label target = entry.getKey();
+    for (Map.Entry<TargetLabel, IntRangeSet> entry : transitions.entrySet()) {
+      final TargetLabel target = entry.getKey();
       final var ranges = new ArrayList<IntRange>();
 
       for (IntRange codeUnitRange : entry.getValue().ranges()) {
@@ -505,16 +522,37 @@ public final class CompiledDfaCodegen {
         .stream()
         .mapToInt((Integer c) -> c.intValue())
         .toArray();
-      final Label[] stateLabels = shortRanges
-        .values()
-        .stream()
-        .toArray(Label[]::new);
+      final Label[] targetStateLabels = new Label[shortRanges.size()];
+      final var commandBlocks = new HashMap<Label, TargetLabel>();
+      {
+        int stateLabelIdx = 0;
+        for (final var targetLabel : shortRanges.values()) {
+          if (targetLabel.commands().isEmpty()) {
+            targetStateLabels[stateLabelIdx] = targetLabel.stateLabel();
+          } else {
+            final var commandsLabel = new Label();
+            targetStateLabels[stateLabelIdx] = commandsLabel;
+            commandBlocks.put(commandsLabel, targetLabel);
+          }
+          stateLabelIdx++;
+        }
+      }
+      
       makeBranch(
         mv,
         lookupFallthrough,
         codeUnitValues,
-        stateLabels
+        targetStateLabels
       );
+
+      // Place command block
+      for (var commandBlock : commandBlocks.entrySet()) {
+        mv.visitLabel(commandBlock.getKey());
+        for (final var command : commandBlock.getValue().commands()) {
+          generateBytecodeForCommand(mv, command, offsetVar, locals, printDebugInfo);
+        }
+        mv.visitJumpInsn(Opcodes.GOTO, commandBlock.getValue().stateLabel());
+      }
 
       // If there are long ranges, place the fallthrough label
       if (!longRanges.isEmpty()) {
@@ -525,7 +563,7 @@ public final class CompiledDfaCodegen {
     if (!longRanges.isEmpty()) {
 
       // Generate one check per set of ranges and try them sequentially
-      for (Map.Entry<Label, List<IntRange>> labelRanges : longRanges.entrySet()) {
+      for (Map.Entry<TargetLabel, List<IntRange>> labelRanges : longRanges.entrySet()) {
 
         boolean firstIteration = true;
         for (IntRange range : labelRanges.getValue()) {
@@ -552,209 +590,25 @@ public final class CompiledDfaCodegen {
         }
 
         // TODO: document the range trick
-        mv.visitJumpInsn(Opcodes.IFLT, labelRanges.getKey());
+        final var targetLabel = labelRanges.getKey();
+        if (targetLabel.commands().isEmpty()) {
+          mv.visitJumpInsn(Opcodes.IFLT, targetLabel.stateLabel());
+        } else {
+          final var notMatched = new Label();
+          mv.visitJumpInsn(Opcodes.IFGE, notMatched);
+        
+          // Execute final commands
+          for (final var command : targetLabel.commands()) {
+            generateBytecodeForCommand(mv, command, offsetVar, locals, printDebugInfo);
+          }
+          mv.visitJumpInsn(Opcodes.GOTO, targetLabel.stateLabel());
+          
+          mv.visitLabel(notMatched);
+        }
       }
 
       mv.visitJumpInsn(Opcodes.GOTO, noTransitionFound);
     }
-  }
-
-
-  /**
-   * Generate the method body associated with simulating an M4 automata.
-   *
-   * This method takes as input path through M3 and uses that path to walk the
-   * M4 DFA here. Along the way, whenever there is a group transition, code
-   * gets synthesized to write in that group into an array for tracking capture
-   * groups. The method returns the group array if the match succeeds or `null`
-   * otherwise.
-   *
-   * @param <Q3> state type for M3 automata
-   * @param <Q4> state type for M4 automata
-   * @param mv method visitor (only argument is the input `CharSequence`)
-   * @param m4 M4 DFA
-   * @param groupCount how many groups are captured? (Must start at 0 and be consequtive)
-   * @param m3StateIds state IDs in M3
-   * @param printDebugInfo print debug info and generate code which prints debug info to STDERR
-   */
-  private static <Q3, Q4> void generateBytecodeForM4Automata(
-    MethodVisitor mv,
-    Dfa<Q4, Q3, Iterable<GroupMarker>> m4,
-    int groupCount,
-    Map<Q3, Integer> m3StateIds,
-    boolean printDebugInfo
-  ) {
-    final int m3PathVar = 0; // Input argument: `int[] m3Path`
-    final int offsetVar = 1; // Local tracking (descending) offset in path: `int offset`
-    final int strOffsetVar = 2; // Local tracking (ascending) offset in string: `int strOffset`
-    final int groupsVar = 3; // Local tracking capture groups: `int[] groups`
-
-    final Set<Q4> terminals = m4.accepting();
-
-    final Label returnFailure = new Label(); // TODO: is failure here possible!?
-    final Label returnSuccess = new Label();
-    final Map<Q4, Label> q4States = m4
-      .allStates()
-      .stream()
-      .collect(Collectors.toMap(
-        Function.<Q4>identity(),
-        (Q4 q4) -> new Label()
-      ));
-
-    // Track entry into M3
-    if (printDebugInfo) {
-      genPrintErrConstant(mv, "[M4] starting run (state IDs " + m3StateIds + ") on: ", false);
-      mv.visitVarInsn(Opcodes.ALOAD, m3PathVar);
-      INTARRTOSTRING_M.invokeMethod(mv, ARRAYS_CLASS_NAME);
-      genPrintErrString(mv);
-    }
-
-    // Initialize the `groups` array to the right length, filled with `-1`
-    final int groupsArrLen = groupCount * 2;
-    pushConstantInt(mv, groupsArrLen);
-    mv.visitIntInsn(Opcodes.NEWARRAY, Opcodes.T_INT);
-    mv.visitInsn(Opcodes.DUP);
-    mv.visitVarInsn(Opcodes.ASTORE, groupsVar);
-    mv.visitInsn(Opcodes.ICONST_M1);
-    FILLINT_M.invokeMethod(mv, ARRAYS_CLASS_NAME);
-
-    // Initialize `offset`
-    mv.visitIntInsn(Opcodes.ALOAD, m3PathVar);
-    mv.visitInsn(Opcodes.ARRAYLENGTH);
-    mv.visitIntInsn(Opcodes.ISTORE, offsetVar);
-
-    // Initialize `strOffset`
-    mv.visitInsn(Opcodes.ICONST_M1);
-    mv.visitIntInsn(Opcodes.ISTORE, strOffsetVar);
-
-    // Jump to the first state
-    mv.visitJumpInsn(Opcodes.GOTO, q4States.get(m4.initial()));
-
-    // Lay out the blocks for each state
-    for (Map.Entry<Q4, Label> entry : q4States.entrySet()) {
-      mv.visitLabel(entry.getValue());
-      final Q4 state = entry.getKey();
-
-      if (printDebugInfo) {
-        genPrintErrConstant(mv, "[M4] entering " + state, true);
-      }
-
-      // decrement the offset and, if it becomes neagtive, return whether we are in terminal state
-      mv.visitIincInsn(offsetVar, -1);
-      mv.visitVarInsn(Opcodes.ILOAD, offsetVar);
-      mv.visitJumpInsn(Opcodes.IFLT, terminals.contains(state) ? returnSuccess : returnFailure);
-
-      // Increment the string offset (don't worry about overflow - `offsetVar` covers that)
-      mv.visitIincInsn(strOffsetVar, 1);
-
-      // get the next M3 path
-      mv.visitVarInsn(Opcodes.ALOAD, m3PathVar);
-      mv.visitVarInsn(Opcodes.ILOAD, offsetVar);
-      mv.visitInsn(Opcodes.IALOAD);
-
-      /* Determining the table switch here is tricky:
-       *
-       *   - first we group transitions based on common target state and regex
-       *     marker sequence
-       *
-       *   - for each of these groups with a non-empty marker sequence, we
-       *     generate a fresh label (this is where the code processing the
-       *     "regex marker" will live).
-       *
-       *   - in the lookup switch, we redirect every element to its label.
-       *     Elements whose group had an empty sequence jump straight to their
-       *     the next state
-       */
-      final Map<SimpleEntry<Q4, List<GroupMarker>>, Label> groupedMarkerTransitions =
-        new HashMap<SimpleEntry<Q4, List<GroupMarker>>, Label>();
-      final SortedMap<Integer, Label> q3StateIdTargets =
-        new TreeMap<Integer, Label>();
-      for (var transitionEntry : m4.transitionsMap(state).entrySet()) {
-        final Q4 q4Target = transitionEntry.getValue().targetState();
-        final Q3 q3State = transitionEntry.getKey();
-        final List<GroupMarker> markersList = StreamSupport
-          .stream(transitionEntry.getValue().annotation().spliterator(), false)
-          .collect(Collectors.toList());
-
-        if (markersList.isEmpty()) {
-          // Map the Q3 ID to the label of the next Q4 state
-          q3StateIdTargets.put(m3StateIds.get(q3State), q4States.get(q4Target));
-        } else {
-          // Lookup (or create if missing) the group and add the Q3 transition to it
-          final var groupLabel = groupedMarkerTransitions.computeIfAbsent(
-            new SimpleEntry<>(q4Target, markersList),
-            (k) -> new Label()
-          );
-
-          // Map the Q3 ID to the processing block
-          q3StateIdTargets.put(m3StateIds.get(q3State), groupLabel);
-        }
-      }
-
-      // Jump to a marker processing block or the next state based on the next Q3 ID
-      final int[] q3StateIdValues = q3StateIdTargets
-        .keySet()
-        .stream()
-        .mapToInt((c) -> c.intValue())
-        .toArray();
-      final Label[] stateLabels = q3StateIdTargets
-        .values()
-        .stream()
-        .toArray(Label[]::new);
-      makeBranch(
-        mv,
-        returnFailure, // no transition found means no match
-        q3StateIdValues,
-        stateLabels
-      );
-
-
-      // Place all of the marker processing blocks
-      for (var grouped : groupedMarkerTransitions.entrySet()) {
-        final Label groupLabel = grouped.getValue();
-        final Q4 nextState = grouped.getKey().getKey();
-        final List<GroupMarker> markers = grouped.getKey().getValue();
-
-        mv.visitLabel(groupLabel);
-        for (GroupMarker marker : markers) {
-          final int groupOff = marker.groupIndex() * 2 + (marker.isStart() ? 0 : 1);
-
-          if (printDebugInfo) {
-            final var message = "[M4] capturing " + marker + ": groups[" + groupOff + "] = ";
-            genPrintErrConstant(mv, message, false);
-            mv.visitVarInsn(Opcodes.ILOAD, strOffsetVar);
-            genPrintErrInt(mv);
-          }
-
-          // TODO minimize
-          mv.visitVarInsn(Opcodes.ALOAD, groupsVar);
-          pushConstantInt(mv, groupOff);
-          mv.visitVarInsn(Opcodes.ILOAD, strOffsetVar);
-          mv.visitInsn(Opcodes.IASTORE);
-        }
-
-        mv.visitJumpInsn(Opcodes.GOTO, q4States.get(nextState));
-      }
-    }
-
-    // Returning unsuccessfully
-    mv.visitLabel(returnFailure);
-    if (printDebugInfo) {
-      genPrintErrConstant(mv, "[M4] exiting run (unsuccessful): null", true);
-    }
-    mv.visitInsn(Opcodes.ACONST_NULL);
-    mv.visitInsn(Opcodes.ARETURN);
-
-    // Returning successfully
-    mv.visitLabel(returnSuccess);
-    if (printDebugInfo) {
-      genPrintErrConstant(mv, "[M4] exiting run (successful): ", false);
-      mv.visitVarInsn(Opcodes.ALOAD, groupsVar);
-      INTARRTOSTRING_M.invokeMethod(mv, ARRAYS_CLASS_NAME);
-      genPrintErrString(mv);
-    }
-    mv.visitVarInsn(Opcodes.ALOAD, groupsVar);
-    mv.visitInsn(Opcodes.ARETURN);
   }
 
   /**

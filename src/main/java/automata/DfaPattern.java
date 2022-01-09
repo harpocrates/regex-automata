@@ -18,10 +18,8 @@ public interface DfaPattern {
    */
   public static DfaPattern compile(String regex)
   throws java.io.IOException, ParseException, IllegalAccessException, NoSuchMethodException, InstantiationException, InvocationTargetException {
-    final var m1 = M1Dfa.parse(regex);
-    final var m2 = M2Nfa.fromM1(m1);
-    final var m3 = M3Dfa.fromM2(m2);
-    final var m4 = M4Dfa.fromM2M3(m2, m3);
+    final var nfa = M1Dfa.parse(regex);
+    final var dfa = TDFA.fromTNFA(nfa);
 
     final String className = "automata/DfaPattern$Compiled";
     final boolean debugInfo = false;
@@ -29,9 +27,7 @@ public interface DfaPattern {
     final byte[] classBytes = CompiledDfaCodegen
       .generateDfaPatternSubclass(
         regex,
-        m3,
-        m4,
-        m4.groupCount(),
+        dfa,
         className,
         classFlags,
         debugInfo
