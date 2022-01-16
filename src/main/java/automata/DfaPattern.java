@@ -21,6 +21,8 @@ public interface DfaPattern {
     final var nfa = M1Dfa.parse(regex);
     final var dfa = TDFA.fromTNFA(nfa);
 
+    while (dfa.simplifyTagCommands());
+
     final String className = "automata/DfaPattern$Compiled";
     final boolean debugInfo = false;
     final int classFlags = Opcodes.ACC_PRIVATE | Opcodes.ACC_FINAL | Opcodes.ACC_SYNTHETIC;
@@ -117,6 +119,8 @@ public interface DfaPattern {
       this.printDebugInfo = printDebugInfo;
       this.m1 = M1Dfa.parse(this.pattern);
       this.dfa = TDFA.fromTNFA(this.m1);
+
+      while (this.dfa.simplifyTagCommands());
     }
 
     public InterpretableDfaPattern(String pattern) throws ParseException {

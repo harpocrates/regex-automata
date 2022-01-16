@@ -14,7 +14,11 @@ interface TagCommand {
    */
   public Optional<Register> usedVariable();
 
-  public void interpret(HashMap<Register, Integer> context, int currentPos);
+  public void interpret(
+    HashMap<Register, Integer> context,
+    int currentPos,
+    boolean printDebugInfo
+  );
 
   /**
    * Variable overwritten by the command.
@@ -41,8 +45,12 @@ interface TagCommand {
     }
 
     @Override
-    public void interpret(HashMap<Register, Integer> context, int currentPos) {
-      context.put(assignTo, context.getOrDefault(copyFrom, -1));
+    public void interpret(HashMap<Register, Integer> context, int currentPos, boolean printDebugInfo) {
+      final int value = context.getOrDefault(copyFrom, -1);
+      if (printDebugInfo) {
+        System.err.println("[TagCommand] " + assignTo + " <- " + copyFrom + " (currently " + value + ")");
+      }
+      context.put(assignTo, value);
     }
   }
 
@@ -64,7 +72,10 @@ interface TagCommand {
     }
 
     @Override
-    public void interpret(HashMap<Register, Integer> context, int currentPos) {
+    public void interpret(HashMap<Register, Integer> context, int currentPos, boolean printDebugInfo) {
+      if (printDebugInfo) {
+        System.err.println("[TagCommand] " + assignTo + " <- pos (currently " + currentPos + ")");
+      }
       context.put(assignTo, currentPos);
     }
   }

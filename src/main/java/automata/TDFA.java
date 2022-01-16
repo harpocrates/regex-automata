@@ -56,16 +56,25 @@ public class TDFA implements DotGraph<Integer, SimpleImmutableEntry<CodeUnitTran
    */
   public final int groupCount;
 
+  /**
+   * Set of all of the group markers.
+   *
+   * TODO: should we recompute this using `groupCount`?
+   */
+  final Set<GroupMarker> groupMarkers;
+
   public TDFA(
     Map<Integer, Map<CodeUnitTransition, TaggedTransition>> states,
     Map<Integer, List<TagCommand>> finalStates,
     int initialState,
-    int groupCount
+    int groupCount,
+    Set<GroupMarker> groupMarkers
   ) {
     this.states = states;
     this.finalStates = finalStates;
     this.initialState = initialState;
     this.groupCount = groupCount;
+    this.groupMarkers = groupMarkers;
   }
 
   /**
@@ -108,8 +117,7 @@ public class TDFA implements DotGraph<Integer, SimpleImmutableEntry<CodeUnitTran
 
       // Apply the commands associated with the tarnsition
       for (var command : tagged.commands()) {
-        // TODO: log command
-        command.interpret(registers, position);
+        command.interpret(registers, position, printDebugInfo);
       }
 
       // Update the DFA state and position
@@ -129,14 +137,14 @@ public class TDFA implements DotGraph<Integer, SimpleImmutableEntry<CodeUnitTran
 
     // Apply the final accepting commands
     for (var command : commands) {
-      command.interpret(registers, position);
+      command.interpret(registers, position, printDebugInfo);
     }
 
     // Construct the match
     final int[] offsets = new int[groupCount * 2];
     for (int i = 0; i < groupCount; i++) {
-      offsets[2 * i] = registers.get(new GroupMarker(true, i));
-      offsets[2 * i + 1] = registers.get(new GroupMarker(false, i));
+      offsets[2 * i] = registers.getOrDefault(new GroupMarker(true, i), -1);
+      offsets[2 * i + 1] = registers.getOrDefault(new GroupMarker(false, i), -1);
     }
     return new ArrayMatchResult(input, offsets);
   }
@@ -447,9 +455,20 @@ public class TDFA implements DotGraph<Integer, SimpleImmutableEntry<CodeUnitTran
               groupRegisters
                 .entrySet()
                 .stream()
-                .<TagCommand>map(m -> new TagCommand.Copy(m.getValue(), updatedRegisters.get(m.getKey())))
+                .<TagCommand>map(m -> {
+                  final Register copyFrom = updatedRegisters.get(m.getKey());
+                  final Register assignTo = m.getValue();
+
+                  // This is needed to ensure the invariant that we never copy
+                  // a variable in the same set of commands as assigning to it
+                  if (transitionOperations.contains(copyFrom)) {
+                    return new TagCommand.CurrentPosition(assignTo);
+                  } else {
+                    return new TagCommand.Copy(assignTo, copyFrom);
+                  }
+                })
             )
-            .collect(Collectors.toUnmodifiableList());
+            .collect(Collectors.toCollection(LinkedList::new));
 
           finalStates.put(nextState.dfaStateId(), commands);
         }
@@ -548,9 +567,20 @@ public class TDFA implements DotGraph<Integer, SimpleImmutableEntry<CodeUnitTran
                 .entrySet()
                 .stream()
                 .filter(m -> !m.getKey().equals(m.getValue()))
-                .<TagCommand>map(m -> new TagCommand.Copy(m.getValue(), m.getKey()))
+                .<TagCommand>map(m -> {
+                  final Register copyFrom = m.getKey();
+                  final Register assignTo = m.getValue();
+
+                  // This is needed to ensure the invariant that we never copy
+                  // a variable in the same set of commands as assigning to it
+                  if (assignCurrentPos.contains(copyFrom)) {
+                    return new TagCommand.CurrentPosition(assignTo);
+                  } else {
+                    return new TagCommand.Copy(assignTo, copyFrom);
+                  }
+                })
             )
-            .collect(Collectors.toUnmodifiableList());
+            .collect(Collectors.toCollection(LinkedList::new));
 
           // Adjust the transition to point to the duplicated state
           transitionsFromThisDfaState.put(
@@ -563,7 +593,7 @@ public class TDFA implements DotGraph<Integer, SimpleImmutableEntry<CodeUnitTran
           final List<TagCommand> commands = assignCurrentPos
             .stream()
             .<TagCommand>map(t -> new TagCommand.CurrentPosition(t))
-            .collect(Collectors.toUnmodifiableList());
+            .collect(Collectors.toCollection(LinkedList::new));
 
           // Add the transition
           transitionsFromThisDfaState.put(
@@ -580,7 +610,162 @@ public class TDFA implements DotGraph<Integer, SimpleImmutableEntry<CodeUnitTran
       }
     }
 
-    return new TDFA(states, finalStates, initialState, groupMarkers.size() / 2);
+    return new TDFA(states, finalStates, initialState, groupMarkers.size() / 2, groupMarkers);
+  }
+
+  /**
+   * Optimize and minimize tag commands.
+   *
+   * This operates by performing liveness analysis and then using that
+   * information to:
+   *
+   *   - eliminate dead stores
+   *   - build an interference graph and coalesce registers whenever possible
+   *
+   * This mutates the graph in-place (specifically updating the command lists)
+   *
+   * @return if anything was simplified
+   */
+  public boolean simplifyTagCommands() {
+    boolean somethingWasSimplified = false;
+
+    /* We run liveness analysis on a CFG of basic blocks. But what do those
+     * blocks correspond to in the DFA?
+     *
+     *   - (non-empty) ones correspond to tagged transitions
+     *   - (empty) ones are associated with DFA states
+     *
+     * The only purpose of the empty state blocks is to serve as join points
+     * (eg. to multiple incoming transition blocks and multiple outgoing
+     * transition blocks)
+     */
+
+    final var blocks = new LinkedList<BasicBlock<Register>>();
+    final var stateBlocks = new HashMap<Integer, BasicBlock<Register>>();
+    final var transitionBlocks = new HashMap<BasicBlock<Register>, List<TagCommand>>();
+
+    // Built up from all copies
+    final var coalescingCandidates = new HashMap<Register, Register>();
+
+    // Initialize the "state" basic blocks
+    for (var dfaStateId : states.keySet()) {
+      final var block = new BasicBlock<Register>();
+      blocks.add(block);
+      stateBlocks.put(dfaStateId, block);
+    }
+
+    // Add in transition blocks
+    for (var entry : states.entrySet()) {
+      final var fromBlock = stateBlocks.get(entry.getKey());
+      for (var transition : entry.getValue().values()) {
+        final var toBlock = stateBlocks.get(transition.targetState());
+        final var commands = transition.commands();
+
+        // Compute which variables are used and defined
+        final var usedVariables = new HashSet<Register>();
+        final var definedVariables = new HashSet<Register>();
+        for (TagCommand command : commands) {
+          command.usedVariable().ifPresent(usedVariables::add);
+          command.definedVariable().ifPresent(definedVariables::add);
+        }
+
+        final var block = new BasicBlock<Register>(usedVariables, definedVariables);
+        blocks.add(block);
+        transitionBlocks.put(block, commands);
+
+        // Connect the blocks
+        BasicBlock.link(fromBlock, block);
+        BasicBlock.link(block, toBlock);
+      }
+    }
+
+    // Add in final transition blocks (TODO: reduce code duplication)
+    for (var entry : finalStates.entrySet()) {
+      final var fromBlock = stateBlocks.get(entry.getKey());
+      final var commands = entry.getValue();
+
+      // Compute which variables are used and defined
+      final var usedVariables = new HashSet<Register>();
+      final var definedVariables = new HashSet<Register>();
+      for (TagCommand command : commands) {
+        command.usedVariable().ifPresent(usedVariables::add);
+        command.definedVariable().ifPresent(definedVariables::add);
+      }
+
+      final var block = new BasicBlock<Register>(usedVariables, definedVariables);
+      blocks.add(block);
+      transitionBlocks.put(block, commands);
+
+      // Connect the blocks
+      BasicBlock.link(fromBlock, block);
+
+      // Since this is a final block, mark the group markers as "live out"
+      block.liveOut.addAll(groupMarkers);
+    }
+
+    // Run liveness analysis
+    BasicBlock.livenessAnalysis(blocks);
+    final var interferenceGraph = new InterferenceGraph<Register>();
+
+    // First pass: dead store elimination and building up interference graph
+    for (var entry : transitionBlocks.entrySet()) {
+      final var block = entry.getKey();
+      final var commands = entry.getValue();
+
+      final var commandIterator = commands.listIterator();
+      while (commandIterator.hasNext()) {
+        final var command = commandIterator.next();
+        final var definedVar = command.definedVariable();
+
+        if (definedVar.isPresent() && !block.liveOut.contains(definedVar.get())) {
+          // Dead store elimination: if a variable is not live out, eliminate any writes to it
+          commandIterator.remove();
+          somethingWasSimplified = true;
+        } else if (command instanceof TagCommand.Copy copy) {
+          // Update coalescing candidates
+          // Note: assign to is the RHS so it will get kept in coalescing ops
+          coalescingCandidates.put(copy.copyFrom(), copy.assignTo());
+        }
+      }
+
+      // Update interference graph
+      // TODO: do we need live in _and_ live out?
+      interferenceGraph.addInterference(block.liveIn);
+      interferenceGraph.addInterference(block.liveOut);
+    }
+
+    // Try to coalesce variables
+    for (final var entry : coalescingCandidates.entrySet()) {
+      if (interferenceGraph.coalesce(entry.getKey(), entry.getValue())) {
+        somethingWasSimplified = true;
+      }
+    }
+
+    // Second pass: apply coalescing and remove pointless copies
+    for (var commands : transitionBlocks.values()) {
+
+      final var commandIterator = commands.listIterator();
+      while (commandIterator.hasNext()) {
+        var command = commandIterator.next();
+
+        if (command instanceof TagCommand.CurrentPosition position) {
+          final var assignTo = interferenceGraph.canonical(position.assignTo());
+          command = new TagCommand.CurrentPosition(assignTo);
+        } else if (command instanceof TagCommand.Copy copy) {
+          final var assignTo = interferenceGraph.canonical(copy.assignTo());
+          final var copyFrom = interferenceGraph.canonical(copy.copyFrom());
+          if (assignTo.equals(copyFrom)) {
+            commandIterator.remove();
+            continue;
+          }
+          command = new TagCommand.Copy(assignTo, copyFrom);
+        }
+
+        commandIterator.set(command);
+      }
+    }
+
+    return somethingWasSimplified;
   }
 
   @Override
