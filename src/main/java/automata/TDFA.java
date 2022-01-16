@@ -18,6 +18,7 @@ import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
 import java.util.function.Function;
 import java.util.function.Supplier;
+import java.util.function.Consumer;
 import java.util.function.IntSupplier;
 import static java.util.AbstractMap.SimpleImmutableEntry;
 
@@ -199,11 +200,11 @@ public class TDFA implements DotGraph<Integer, SimpleImmutableEntry<CodeUnitTran
   }
 
   /**
-   * Full set of registers used in commands.
+   * Full set of temporary registers used in commands.
    *
-   * @return set of every register
+   * @return set of every temporary register
    */
-  public Set<Register> registers() {
+  public Set<Register.Temporary> registers() {
     final Stream<TagCommand> innerCommands = states
       .values()
       .stream()
@@ -218,9 +219,14 @@ public class TDFA implements DotGraph<Integer, SimpleImmutableEntry<CodeUnitTran
     return Stream
       .concat(innerCommands, finalCommands)
       .flatMap((TagCommand command) -> {
-        final var builder = Stream.<Register>builder();
-        command.usedVariable().ifPresent(builder::accept);
-        command.definedVariable().ifPresent(builder::accept);
+        final var builder = Stream.<Register.Temporary>builder();
+        final Consumer<Register> addVar = (Register r) -> {
+          if (r instanceof Register.Temporary t) {
+            builder.accept(t);
+          }
+        };
+        command.usedVariable().ifPresent(addVar);
+        command.definedVariable().ifPresent(addVar);
         return builder.build();
       })
       .collect(Collectors.toSet());

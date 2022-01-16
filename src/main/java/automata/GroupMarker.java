@@ -33,6 +33,10 @@ public record GroupMarker(
       .collect(Collectors.joining(""));
   }
 
+  public int arrayOffset() {
+    return isStart ? 2 * groupIndex : 2 * groupIndex + 1;
+  }
+
   public static GroupMarker start(int groupIndex) {
     return new GroupMarker(true, groupIndex);
   }

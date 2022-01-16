@@ -98,8 +98,8 @@ public final class CompiledDfaCodegen {
       new String[] { DFAPATTERN_CLASS_NAME }
     );
 
-    // Set of all registers in the TDFA
-    final Set<Register> registers = dfa.registers();
+    // Set of all temporary registers in the TDFA
+    final Set<Register.Temporary> registers = dfa.registers();
 
     // Make constructor (which takes no arguments - the class has no state!)
     {
@@ -181,22 +181,55 @@ public final class CompiledDfaCodegen {
     MethodVisitor mv,
     TagCommand command,
     int offsetVar,
-    Map<Register, Integer> locals,
+    int groupsVar,
+    Map<Register.Temporary, Integer> temporaryVars,
     boolean printDebugInfo
   ) {
     if (command instanceof TagCommand.Copy copy) {
-      mv.visitVarInsn(Opcodes.ILOAD, locals.get(copy.copyFrom()));
-      mv.visitVarInsn(Opcodes.ISTORE, locals.get(copy.assignTo()));
+
+      final Register copyFrom = copy.copyFrom();
+      final Register assignTo = copy.assignTo();
+
+      // Prepare for assignment to a group
+      if (assignTo instanceof GroupMarker group) {
+        mv.visitVarInsn(Opcodes.ALOAD, groupsVar);
+        pushConstantInt(mv, group.arrayOffset());
+      }
+
+      // Load from `copyFrom`
+      if (copyFrom instanceof Register.Temporary temp) {
+        mv.visitVarInsn(Opcodes.ILOAD, temporaryVars.get(temp));
+      } else if (copyFrom instanceof GroupMarker group) {
+        mv.visitVarInsn(Opcodes.ALOAD, groupsVar);
+        pushConstantInt(mv, group.arrayOffset());
+        mv.visitInsn(Opcodes.IALOAD);
+      }
+
+      // Assign to `assignTo`
+      if (assignTo instanceof Register.Temporary temp) {
+        mv.visitVarInsn(Opcodes.ISTORE, temporaryVars.get(temp));
+      } else if (assignTo instanceof GroupMarker group) {
+        mv.visitInsn(Opcodes.IASTORE);
+      }
 
       if (printDebugInfo) {
         final var message = "[TDFA] copy " + copy.assignTo() + " <- " + copy.copyFrom() + " or ";
         genPrintErrConstant(mv, message, false);
-        mv.visitVarInsn(Opcodes.ILOAD, locals.get(copy.copyFrom()));
+        mv.visitVarInsn(Opcodes.ILOAD, temporaryVars.get(copy.copyFrom()));
         genPrintErrInt(mv);
       }
     } else if (command instanceof TagCommand.CurrentPosition currentPos) {
-      mv.visitVarInsn(Opcodes.ILOAD, offsetVar);
-      mv.visitVarInsn(Opcodes.ISTORE, locals.get(currentPos.assignTo()));
+      final Register assignTo = currentPos.assignTo();
+
+      if (assignTo instanceof Register.Temporary temp) {
+        mv.visitVarInsn(Opcodes.ILOAD, offsetVar);
+        mv.visitVarInsn(Opcodes.ISTORE, temporaryVars.get(temp));
+      } else if (assignTo instanceof GroupMarker group) {
+        mv.visitVarInsn(Opcodes.ALOAD, groupsVar);
+        pushConstantInt(mv, group.arrayOffset());
+        mv.visitVarInsn(Opcodes.ILOAD, offsetVar);
+        mv.visitInsn(Opcodes.IASTORE);
+      }
 
       if (printDebugInfo) {
         final var message = "[TDFA] set current pos " + currentPos.assignTo() + " <- ";
@@ -221,26 +254,27 @@ public final class CompiledDfaCodegen {
    *
    * @param mv method visitor (only argument is the input `CharSequence`)
    * @param dfa tagged DFA
-   * @param registers registes in the tags (set to {@code null} to ignore tags)
+   * @param registers temporary registers (set to {@code null} to ignore tags)
    * @param printDebugInfo print debug info and generate code which prints debug info to STDERR
    */
   private static void generateBytecodeForAutomata(
     MethodVisitor mv,
     TDFA dfa,
-    Set<Register> registers,
+    Set<Register.Temporary> registers,
     boolean printDebugInfo
   ) {
     final int inputVar = 0;  // Input argument: `CharSequence input`
     final int offsetVar = 1; // Local tracking (ascending) offset in string: `int offset`
     final int lengthVar = 2; // Local tracking max offset in input `int length`
-    final int codeUnitTempVar = 3; // Local sometimes used in codeUnit tests: `char codeUnit`
-    
-    // Mapping from register in the TDFA to the JVM locals in this method
-    final var locals = new HashMap<Register, Integer>();
+    final int groupsVar = 3; // Local tracking group variables: `int[] groups`
+    final int codeUnitTempVar = 4; // Local sometimes used in codeUnit tests: `char codeUnit`
+
+    // Mapping from temporary register in the TDFA to the JVM locals in this method
+    final var temporaryVars = new HashMap<Register.Temporary, Integer>();
     if (registers != null) {
-      int nextLocal = 4;
+      int nextLocal = 5;
       for (final var register : registers) {
-        locals.put(register, nextLocal++);
+        temporaryVars.put(register, nextLocal++);
       }
     }
 
@@ -253,13 +287,23 @@ public final class CompiledDfaCodegen {
     LENGTH_M.invokeMethod(mv, CHARSEQUENCE_CLASS_NAME);
     mv.visitVarInsn(Opcodes.ISTORE, lengthVar);
 
+    // Groups variable
+    if (registers != null) {
+      pushConstantInt(mv, 2 * dfa.groupCount);
+      mv.visitIntInsn(Opcodes.NEWARRAY, Opcodes.T_INT);
+      mv.visitInsn(Opcodes.DUP);
+      mv.visitInsn(Opcodes.ICONST_M1);
+      FILLINT_M.invokeMethod(mv, ARRAYS_CLASS_NAME);
+      mv.visitVarInsn(Opcodes.ASTORE, groupsVar);
+    }
+
     // Help ASM infer the right signatures
     // TODO: this is where register allocation to decrease registers matters
     mv.visitInsn(Opcodes.ICONST_0);
     mv.visitVarInsn(Opcodes.ISTORE, codeUnitTempVar);
-    for (final var local : locals.values()) {
+    for (final var tempVar : temporaryVars.values()) {
       mv.visitInsn(Opcodes.ICONST_M1);
-      mv.visitVarInsn(Opcodes.ISTORE, local);
+      mv.visitVarInsn(Opcodes.ISTORE, tempVar);
     }
 
     final Label returnFailure = new Label();
@@ -272,7 +316,7 @@ public final class CompiledDfaCodegen {
 
     // Track entry into TDFA
     if (printDebugInfo) {
-      final var localVars = (registers == null) ? "" : " (locals " + locals + ")";
+      final var localVars = (registers == null) ? "" : " (temporaries " + temporaryVars + ")";
       genPrintErrConstant(mv, "[TDFA] starting run" + localVars + " on: ", false);
       mv.visitVarInsn(Opcodes.ALOAD, inputVar);
       TOSTRING_M.invokeMethod(mv, OBJECT_CLASS_NAME);
@@ -304,7 +348,14 @@ public final class CompiledDfaCodegen {
 
         // Execute final commands
         for (final var command : finalCommands) {
-          generateBytecodeForCommand(mv, command, offsetVar, locals, printDebugInfo);
+          generateBytecodeForCommand(
+            mv,
+            command,
+            offsetVar,
+            groupsVar,
+            temporaryVars,
+            printDebugInfo
+          );
         }
         mv.visitJumpInsn(Opcodes.GOTO, returnSuccess);
 
@@ -321,7 +372,9 @@ public final class CompiledDfaCodegen {
         codeUnitTempVar,
         dfa.states.get(state),
         stateLabels,
-        locals,
+        registers == null,
+        groupsVar,
+        temporaryVars,
         offsetVar,
         returnFailure,
         printDebugInfo
@@ -345,32 +398,10 @@ public final class CompiledDfaCodegen {
     // Returning successfully
     mv.visitLabel(returnSuccess);
 
-    // Construct the array of results (if we're in that mode)
-    if (registers != null) {
-      pushConstantInt(mv, 2 * dfa.groupCount);
-      mv.visitIntInsn(Opcodes.NEWARRAY, Opcodes.T_INT);
-      mv.visitInsn(Opcodes.ICONST_M1);
-
-      // Each iteration, we start with the group array and the next index on the stack
-      for (int i = 0; i < dfa.groupCount; i++) {
-        for (var groupMarker : List.of(new GroupMarker(true, i), new GroupMarker(false, i))) {
-          mv.visitInsn(Opcodes.ICONST_1);
-          mv.visitInsn(Opcodes.IADD);
-
-          mv.visitInsn(Opcodes.DUP2);
-          mv.visitVarInsn(Opcodes.ILOAD, locals.get(groupMarker));
-          mv.visitInsn(Opcodes.IASTORE);
-        }
-      }
-
-      // Pop off the index (but not the result array)
-      mv.visitInsn(Opcodes.POP);
-    }
-
     if (printDebugInfo) {
       genPrintErrConstant(mv, "[TDFA] exiting run (successful): ", false);
       if (registers != null) {
-        mv.visitInsn(Opcodes.DUP);
+        mv.visitIntInsn(Opcodes.ALOAD, groupsVar);
         INTARRTOSTRING_M.invokeMethod(mv, ARRAYS_CLASS_NAME);
         genPrintErrString(mv);
       } else {
@@ -384,10 +415,9 @@ public final class CompiledDfaCodegen {
       mv.visitInsn(Opcodes.IRETURN);
     } else {
       mv.visitTypeInsn(Opcodes.NEW, ARRAYMATCHRESULT_CLASS_NAME);
-      mv.visitInsn(Opcodes.DUP_X1);
-      mv.visitInsn(Opcodes.SWAP);
+      mv.visitInsn(Opcodes.DUP);
       mv.visitVarInsn(Opcodes.ALOAD, inputVar);
-      mv.visitInsn(Opcodes.SWAP);
+      mv.visitVarInsn(Opcodes.ALOAD, groupsVar);
       mv.visitMethodInsn(
         Opcodes.INVOKESPECIAL,
         ARRAYMATCHRESULT_CLASS_NAME,
@@ -443,7 +473,9 @@ public final class CompiledDfaCodegen {
    * @param codeUnitTempVar index of a temporary variable for a {@code char}
    * @param transitionsMap transitions out of the current state
    * @param stateLabels mapping of DFA states to their labels
-   * @param locals mapping of tagged registers to their locals (empty if we should ignore tags)
+   * @param skipCommands whether to skip commands
+   * @param groupsVar group array variable
+   * @param temporaryVars mapping of tagged registers to their locals
    * @param noTransitionFound what to do if the next character doesn't match
    */
   private static void generateDfaTransition(
@@ -451,11 +483,24 @@ public final class CompiledDfaCodegen {
     int codeUnitTempVar,
     Map<CodeUnitTransition, TDFA.TaggedTransition> transitionsMap,
     Map<Integer, Label> stateLabels,
-    Map<Register, Integer> locals,
+    boolean skipCommands,
+    int groupsVar,
+    Map<Register.Temporary, Integer> temporaryVars,
     int offsetVar,
     Label noTransitionFound,
     boolean printDebugInfo
   ) {
+
+    // Commands that occur for _all_ transitions
+    final Set<TagCommand> sharedCommands = skipCommands
+      ? Collections.emptySet()
+      : transitionsMap
+          .values()
+          .stream()
+          .map(TDFA.TaggedTransition::commands)
+          .<Set<TagCommand>>map(HashSet::new)
+          .reduce((s1, s2) -> { s1.retainAll(s2); return s1; })
+          .orElse(Collections.emptySet());
 
     record TargetLabel(Label stateLabel, List<TagCommand> commands) { }
 
@@ -465,10 +510,18 @@ public final class CompiledDfaCodegen {
       .stream()
       .collect(
         Collectors.groupingBy(
-          entry -> new TargetLabel(
-            stateLabels.get(entry.getValue().targetState()),
-            (locals.isEmpty()) ? Collections.emptyList() : entry.getValue().commands()
-          ),
+          (Map.Entry<CodeUnitTransition, TDFA.TaggedTransition> entry) -> {
+            final var lbl = stateLabels.get(entry.getValue().targetState());
+            final List<TagCommand> commands = skipCommands
+              ? Collections.emptyList()
+              : entry
+                .getValue()
+                .commands()
+                .stream()
+                .filter(command -> !sharedCommands.contains(command))
+                .collect(Collectors.toUnmodifiableList());
+            return new TargetLabel(lbl, commands);
+          },
           Collectors.reducing(
             IntRangeSet.EMPTY,
             entry -> entry.getKey().codeUnitSet(),
@@ -503,6 +556,18 @@ public final class CompiledDfaCodegen {
       }
     }
 
+    // Generate code for shared commands
+    for (TagCommand command : sharedCommands) {
+      generateBytecodeForCommand(
+        mv,
+        command,
+        offsetVar,
+        groupsVar,
+        temporaryVars,
+        printDebugInfo
+      );
+    }
+
     // Populate the variable if we know we have long ranges coming
     if (!longRanges.isEmpty()) {
       if (!shortRanges.isEmpty()) {
@@ -523,21 +588,20 @@ public final class CompiledDfaCodegen {
         .mapToInt((Integer c) -> c.intValue())
         .toArray();
       final Label[] targetStateLabels = new Label[shortRanges.size()];
-      final var commandBlocks = new HashMap<Label, TargetLabel>();
+      final var commandBlocks = new HashMap<TargetLabel, Label>();
       {
         int stateLabelIdx = 0;
         for (final var targetLabel : shortRanges.values()) {
           if (targetLabel.commands().isEmpty()) {
             targetStateLabels[stateLabelIdx] = targetLabel.stateLabel();
           } else {
-            final var commandsLabel = new Label();
+            final var commandsLabel = commandBlocks.computeIfAbsent(targetLabel, k -> new Label());
             targetStateLabels[stateLabelIdx] = commandsLabel;
-            commandBlocks.put(commandsLabel, targetLabel);
           }
           stateLabelIdx++;
         }
       }
-      
+
       makeBranch(
         mv,
         lookupFallthrough,
@@ -547,11 +611,18 @@ public final class CompiledDfaCodegen {
 
       // Place command block
       for (var commandBlock : commandBlocks.entrySet()) {
-        mv.visitLabel(commandBlock.getKey());
-        for (final var command : commandBlock.getValue().commands()) {
-          generateBytecodeForCommand(mv, command, offsetVar, locals, printDebugInfo);
+        mv.visitLabel(commandBlock.getValue());
+        for (final var command : commandBlock.getKey().commands()) {
+          generateBytecodeForCommand(
+            mv,
+            command,
+            offsetVar,
+            groupsVar,
+            temporaryVars,
+            printDebugInfo
+          );
         }
-        mv.visitJumpInsn(Opcodes.GOTO, commandBlock.getValue().stateLabel());
+        mv.visitJumpInsn(Opcodes.GOTO, commandBlock.getKey().stateLabel());
       }
 
       // If there are long ranges, place the fallthrough label
@@ -596,13 +667,20 @@ public final class CompiledDfaCodegen {
         } else {
           final var notMatched = new Label();
           mv.visitJumpInsn(Opcodes.IFGE, notMatched);
-        
+
           // Execute final commands
           for (final var command : targetLabel.commands()) {
-            generateBytecodeForCommand(mv, command, offsetVar, locals, printDebugInfo);
+            generateBytecodeForCommand(
+              mv,
+              command,
+              offsetVar,
+              groupsVar,
+              temporaryVars,
+              printDebugInfo
+            );
           }
           mv.visitJumpInsn(Opcodes.GOTO, targetLabel.stateLabel());
-          
+
           mv.visitLabel(notMatched);
         }
       }
