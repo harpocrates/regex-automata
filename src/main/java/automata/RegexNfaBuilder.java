@@ -1,5 +1,6 @@
 package automata;
 
+import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.Map;
 import java.util.LinkedList;
@@ -18,7 +19,9 @@ import java.util.stream.Collectors;
  *
  * @param <Q> states in the automata
  */
-public abstract class RegexNfaBuilder<Q> extends CodePointSetVisitor implements RegexVisitor<UnaryOperator<Q>, IntRangeSet> {
+public abstract class RegexNfaBuilder<Q>
+    extends CodePointSetVisitor
+    implements RegexVisitor<UnaryOperator<NfaState<Q>>, IntRangeSet> {
 
   /**
    * Summon a fresh state identifier.
@@ -50,9 +53,15 @@ public abstract class RegexNfaBuilder<Q> extends CodePointSetVisitor implements 
    *
    * @param state state to add
    * @param marker group marker
+   * @param relativeLocation fixed position relative to another marker
    * @param to state at the other end of the group transition
    */
-  abstract void addGroupState(Q state, GroupMarker marker, Q to);
+  abstract void addGroupState(
+    Q state,
+    GroupMarker marker,
+    Optional<RelativeGroupLocation> relativeLocation,
+    Q to
+  );
 
   /**
    * Register a new state with an empty boundary transition out of it.
@@ -63,7 +72,7 @@ public abstract class RegexNfaBuilder<Q> extends CodePointSetVisitor implements 
    */
   abstract void addBoundaryState(Q state, RegexVisitor.Boundary boundary, Q to);
 
-  public UnaryOperator<Q> visitEpsilon() {
+  public UnaryOperator<NfaState<Q>> visitEpsilon() {
     return UnaryOperator.identity();
   }
 
@@ -80,7 +89,9 @@ public abstract class RegexNfaBuilder<Q> extends CodePointSetVisitor implements 
    * @param codePointSet input code point set
    * @return mapping from low surrogate ranges to high surrogate ranges
    */
-  public static Map<IntRangeSet, IntRangeSet> supplementaryCodeUnitRanges(IntRangeSet codePointSet) {
+  public static Map<IntRangeSet, IntRangeSet> supplementaryCodeUnitRanges(
+    IntRangeSet codePointSet
+  ) {
 
     // TODO: this doesn't need to be a map since we scan high codepoints in order
     //       and only ever update the last one
@@ -133,7 +144,7 @@ public abstract class RegexNfaBuilder<Q> extends CodePointSetVisitor implements 
       );
   }
 
-  public UnaryOperator<Q> visitCharacterClass(IntRangeSet codePointSet) {
+  public UnaryOperator<NfaState<Q>> visitCharacterClass(IntRangeSet codePointSet) {
     if (!codePointSet.difference(IntRangeSet.of(CodePointSetVisitor.UNICODE_RANGE)).isEmpty()) {
       throw new IllegalArgumentException("Codepoints outside the unicode range aren't allowed");
     }
@@ -149,7 +160,14 @@ public abstract class RegexNfaBuilder<Q> extends CodePointSetVisitor implements 
      */
     final var supplementaryCodeUnits = supplementaryCodeUnitRanges(codePointSet);
 
-    return (Q to) -> {
+    // How many code units wide is the class?
+    final Optional<Integer> classSize =
+      supplementaryCodeUnits.isEmpty() ? Optional.of(1) :
+      basicCodeUnits.isEmpty() ? Optional.of(2) :
+      Optional.empty();
+
+    return (NfaState<Q> toState) -> {
+      final Q to = toState.state();
       final Q start = freshState();
       if (!basicCodeUnits.isEmpty()) {
         addCodeUnitsState(start, basicCodeUnits, to);
@@ -160,83 +178,117 @@ public abstract class RegexNfaBuilder<Q> extends CodePointSetVisitor implements 
         addCodeUnitsState(start, loAndHigh.getValue(), hiEnd);
         addCodeUnitsState(hiEnd, loAndHigh.getKey(), to);
       }
-      return start;
+
+      final var fixedGroup = toState
+        .fixedGroup()
+        .flatMap(loc -> classSize.map(loc::addDistance));
+
+      return new NfaState<Q>(start, toState.unavoidable(), fixedGroup);
     };
   }
 
-  public UnaryOperator<Q> visitConcatenation(UnaryOperator<Q> lhs, UnaryOperator<Q> rhs) {
-    return (Q to) -> {
-      final Q mid = rhs.apply(to);
+  public UnaryOperator<NfaState<Q>> visitConcatenation(
+    UnaryOperator<NfaState<Q>> lhs,
+    UnaryOperator<NfaState<Q>> rhs
+  ) {
+    return (NfaState<Q> to) -> {
+      final NfaState<Q> mid = rhs.apply(to);
       return lhs.apply(mid);
     };
   }
 
-  public UnaryOperator<Q> visitAlternation(UnaryOperator<Q> lhs, UnaryOperator<Q> rhs) {
-    return (Q to) -> {
-      final Q lhsFrom = lhs.apply(to);
-      final Q rhsFrom = rhs.apply(to);
+  public UnaryOperator<NfaState<Q>> visitAlternation(
+    UnaryOperator<NfaState<Q>> lhs,
+    UnaryOperator<NfaState<Q>> rhs
+  ) {
+    return (NfaState<Q> to) -> {
+      final NfaState<Q> toNoLoc = new NfaState<Q>(to.state(), false, Optional.empty());
+      final NfaState<Q> lhsFrom = lhs.apply(toNoLoc);
+      final NfaState<Q> rhsFrom = rhs.apply(toNoLoc);
       final Q from = freshState();
-      addPlusMinusState(from, lhsFrom, rhsFrom);
-      return from;
+      addPlusMinusState(from, lhsFrom.state(), rhsFrom.state());
+      return new NfaState<Q>(from, to.unavoidable(), Optional.empty());
     };
   }
 
-  public UnaryOperator<Q> visitKleene(UnaryOperator<Q> lhs, boolean isLazy) {
-    return (Q to) -> {
+  public UnaryOperator<NfaState<Q>> visitKleene(
+    UnaryOperator<NfaState<Q>> lhs,
+    boolean isLazy
+  ) {
+    return (NfaState<Q> to) -> {
       final Q lhsTo = freshState();
       final Q from = freshState();
-      final Q lhsFrom = lhs.apply(lhsTo);
+      final Q lhsFrom = lhs
+        .apply(new NfaState<Q>(lhsTo, false, Optional.empty()))
+        .state();
       if (isLazy) {
-        addPlusMinusState(lhsTo, to, lhsFrom);
-        addPlusMinusState(from, to, lhsFrom);
+        addPlusMinusState(lhsTo, to.state(), lhsFrom);
+        addPlusMinusState(from, to.state(), lhsFrom);
       } else {
-        addPlusMinusState(lhsTo, lhsFrom, to);
-        addPlusMinusState(from, lhsFrom, to);
+        addPlusMinusState(lhsTo, lhsFrom, to.state());
+        addPlusMinusState(from, lhsFrom, to.state());
       }
-      return from;
+      return new NfaState<Q>(from, to.unavoidable(), Optional.empty());
     };
   }
 
-  public UnaryOperator<Q> visitOptional(UnaryOperator<Q> lhs, boolean isLazy) {
-    return (Q to) -> {
+  public UnaryOperator<NfaState<Q>> visitOptional(
+    UnaryOperator<NfaState<Q>> lhs,
+    boolean isLazy
+  ) {
+    return (NfaState<Q> to) -> {
       final Q from = freshState();
-      final Q lhsFrom = lhs.apply(to);
+      final Q lhsFrom = lhs
+        .apply(new NfaState<Q>(to.state(), false, Optional.empty()))
+        .state();
       if (isLazy) {
-        addPlusMinusState(from, to, lhsFrom);
+        addPlusMinusState(from, to.state(), lhsFrom);
       } else {
-        addPlusMinusState(from, lhsFrom, to);
+        addPlusMinusState(from, lhsFrom, to.state());
       }
-      return from;
+      return new NfaState<Q>(from, to.unavoidable(), Optional.empty());
     };
   }
 
-  public UnaryOperator<Q> visitPlus(UnaryOperator<Q> lhs, boolean isLazy) {
-    return (Q to) -> {
+  public UnaryOperator<NfaState<Q>> visitPlus(
+    UnaryOperator<NfaState<Q>> lhs,
+    boolean isLazy
+  ) {
+    return (NfaState<Q> to) -> {
       final Q lhsTo = freshState();
-      final Q lhsFrom = lhs.apply(lhsTo);
+      final Q lhsFrom = lhs
+        .apply(new NfaState<Q>(lhsTo, to.unavoidable(), Optional.empty()))
+        .state();
       if (isLazy) {
-        addPlusMinusState(lhsTo, to, lhsFrom);
+        addPlusMinusState(lhsTo, to.state(), lhsFrom);
       } else {
-        addPlusMinusState(lhsTo, lhsFrom, to);
+        addPlusMinusState(lhsTo, lhsFrom, to.state());
       }
-      return lhsFrom;
+      return new NfaState<Q>(lhsFrom, to.unavoidable(), Optional.empty());
     };
   }
 
-  public UnaryOperator<Q> visitRepetition(UnaryOperator<Q> lhs, int atLeast, OptionalInt atMost, boolean isLazy) {
-    return (Q to) -> {
+  public UnaryOperator<NfaState<Q>> visitRepetition(
+    UnaryOperator<NfaState<Q>> lhs,
+    int atLeast,
+    OptionalInt atMost,
+    boolean isLazy
+  ) {
+    return (NfaState<Q> to) -> {
       // `atMost` portion - this is either a fixed repetition or a kleene star
       if (atMost.isPresent()) {
         final int atMostInt = atMost.getAsInt();
         for (int i = atLeast; i < atMostInt; i++) {
-          final Q from = lhs.apply(to);
+          final Q from = lhs
+            .apply(new NfaState<Q>(to.state(), false, Optional.empty()))
+            .state();
           final Q fork = freshState();
           if (isLazy) {
-            addPlusMinusState(fork, to, from);
+            addPlusMinusState(fork, to.state(), from);
           } else {
-            addPlusMinusState(fork, from, to);
+            addPlusMinusState(fork, from, to.state());
           }
-          to = fork;
+          to = new NfaState<Q>(fork, to.unavoidable(), Optional.empty());
         }
       } else {
         to = visitKleene(lhs, isLazy).apply(to);
@@ -251,27 +303,43 @@ public abstract class RegexNfaBuilder<Q> extends CodePointSetVisitor implements 
     };
   }
 
-  public UnaryOperator<Q> visitGroup(UnaryOperator<Q> arg, OptionalInt groupIndex) {
+  public UnaryOperator<NfaState<Q>> visitGroup(
+    UnaryOperator<NfaState<Q>> arg,
+    OptionalInt groupIndex
+  ) {
     if (groupIndex.isPresent()) {
       final int idx = groupIndex.getAsInt();
-      return (Q to) -> {
+      final var end = GroupMarker.end(idx);
+      final var start = GroupMarker.start(idx);
+
+      return (NfaState<Q> to) -> {
         final Q argTo = freshState();
         final Q from = freshState();
-        final Q argFrom = arg.apply(argTo);
-        addGroupState(argTo, GroupMarker.end(idx), to);
-        addGroupState(from, GroupMarker.start(idx), argFrom);
-        return from;
+        final boolean unavoidable = to.unavoidable();
+
+        final var toGroup = to
+          .fixedGroup()
+          .orElseGet(() -> new RelativeGroupLocation(end, unavoidable, 0));
+        final NfaState<Q> argFrom = arg
+          .apply(new NfaState<Q>(argTo, unavoidable, Optional.of(toGroup)));
+        final var fromGroup = argFrom
+          .fixedGroup()
+          .orElseGet(() -> new RelativeGroupLocation(start, unavoidable, 0));
+
+        addGroupState(argTo, end, to.fixedGroup(), to.state());
+        addGroupState(from, start, argFrom.fixedGroup(), argFrom.state());
+        return new NfaState<Q>(from, unavoidable, Optional.of(fromGroup));
       };
     } else {
       return arg;
     }
   }
 
-  public UnaryOperator<Q> visitBoundary(Boundary boundary) {
-    return (Q to) -> {
+  public UnaryOperator<NfaState<Q>> visitBoundary(Boundary boundary) {
+    return (NfaState<Q> to) -> {
       final Q from = freshState();
-      addBoundaryState(from, boundary, to);
-      return from;
+      addBoundaryState(from, boundary, to.state());
+      return new NfaState<Q>(from, to.unavoidable(), to.fixedGroup());
     };
   }
 }

@@ -43,14 +43,21 @@ final public class M1Dfa implements DotGraph<Integer, M1Transition> {
    */
   public final int finalState;
 
+  /**
+   * Group markers whose position is fixed relative to other group markers.
+   */
+  public final Map<GroupMarker, RelativeGroupLocation> fixedTags;
+
   private M1Dfa(
     List<Map<M1Transition, Integer>> states,
     int initialState,
-    int finalState
+    int finalState,
+    Map<GroupMarker, RelativeGroupLocation> fixedTags
   ) {
     this.states = states;
     this.initialState = initialState;
     this.finalState = finalState;
+    this.fixedTags = fixedTags;
   }
 
   public static M1Dfa parse(String pattern, boolean wrappingGroup) throws ParseException {
@@ -66,6 +73,7 @@ final public class M1Dfa implements DotGraph<Integer, M1Transition> {
     private boolean used = false;
     private int lastState = 0;
     private final LinkedList<BufferedTransition> transitions = new LinkedList<>();
+    private final Map<GroupMarker, RelativeGroupLocation> fixedTags = new HashMap<>();
 
     @Override
     public Integer freshState() {
@@ -84,7 +92,10 @@ final public class M1Dfa implements DotGraph<Integer, M1Transition> {
     }
 
     @Override
-    public void addGroupState(Integer from, GroupMarker marker, Integer to) {
+    public void addGroupState(Integer from, GroupMarker marker, Optional<RelativeGroupLocation> fixedTag, Integer to) {
+      if (fixedTag.isPresent()) {
+        fixedTags.put(marker, fixedTag.get());
+      }
       transitions.addLast(new BufferedTransition(from, marker, to));
     }
 
@@ -101,7 +112,7 @@ final public class M1Dfa implements DotGraph<Integer, M1Transition> {
      * @param finalState which state is the accepting one
      * @return valid M1 finite state machine
      */
-    public M1Dfa constructDfa(UnaryOperator<Integer> visitorOutput) {
+    public M1Dfa constructDfa(UnaryOperator<NfaState<Integer>> visitorOutput) {
       if (used) {
         throw new IllegalStateException("construct may only be called once on an M1 builder");
       } else {
@@ -110,7 +121,7 @@ final public class M1Dfa implements DotGraph<Integer, M1Transition> {
 
       // "Run" the visitor output, populating `transitions` as a side-effect
       final int finalState = freshState();
-      final int initialState = visitorOutput.apply(finalState);
+      final int initialState = visitorOutput.apply(new NfaState<>(finalState, true, Optional.empty())).state();
 
       // Initialize the states array to the right length
       @SuppressWarnings({"unchecked"})
@@ -163,7 +174,7 @@ final public class M1Dfa implements DotGraph<Integer, M1Transition> {
       states.replaceAll(Collections::unmodifiableMap);
       states.trimToSize();
 
-      return new M1Dfa(Collections.unmodifiableList(states), initialState, finalState);
+      return new M1Dfa(Collections.unmodifiableList(states), initialState, finalState, fixedTags);
     }
   }
 

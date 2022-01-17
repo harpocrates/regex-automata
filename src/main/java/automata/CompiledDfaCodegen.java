@@ -398,6 +398,38 @@ public final class CompiledDfaCodegen {
     // Returning successfully
     mv.visitLabel(returnSuccess);
 
+    // Fill in fixed tags
+    if (registers != null) {
+      for (final var fixedGroup : dfa.fixedTags.entrySet()) {
+        final GroupMarker forGroup = fixedGroup.getKey();
+        final RelativeGroupLocation location = fixedGroup.getValue();
+
+        // Prepare for `iastore` assigning to the fixed group
+        mv.visitIntInsn(Opcodes.ALOAD, groupsVar);
+        pushConstantInt(mv, forGroup.arrayOffset());
+
+        // Get the relative value
+        mv.visitIntInsn(Opcodes.ALOAD, groupsVar);
+        pushConstantInt(mv, location.relativeTo().arrayOffset());
+        mv.visitInsn(Opcodes.IALOAD);
+
+        // If the group is not unavoidable, we need to only decrement if != -1
+        if (!location.unavoidable()) {
+          final var afterDecrement = new Label();
+          mv.visitInsn(Opcodes.DUP);
+          mv.visitJumpInsn(Opcodes.IFLT, afterDecrement);
+          pushConstantInt(mv, location.distance());
+          mv.visitInsn(Opcodes.ISUB);
+          mv.visitLabel(afterDecrement);
+        } else {
+          pushConstantInt(mv, location.distance());
+          mv.visitInsn(Opcodes.ISUB);
+        }
+
+        mv.visitInsn(Opcodes.IASTORE);
+      }
+    }
+
     if (printDebugInfo) {
       genPrintErrConstant(mv, "[TDFA] exiting run (successful): ", false);
       if (registers != null) {

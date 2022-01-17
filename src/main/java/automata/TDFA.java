@@ -59,24 +59,31 @@ public class TDFA implements DotGraph<Integer, SimpleImmutableEntry<CodeUnitTran
   public final int groupCount;
 
   /**
-   * Set of all of the group markers.
+   * Set of all of the group markers which are tracked in the TDFA.
    *
-   * TODO: should we recompute this using `groupCount`?
+   * This does not include markers in {@code fixedTags}.
    */
-  public final Set<GroupMarker> groupMarkers;
+  public final Set<GroupMarker> trackedGroupMarkers;
+
+  /**
+   * Group markers whose position is fixed relative to other group markers.
+   */
+  public final Map<GroupMarker, RelativeGroupLocation> fixedTags;
 
   public TDFA(
     Map<Integer, Map<CodeUnitTransition, TaggedTransition>> states,
     Map<Integer, List<TagCommand>> finalStates,
     int initialState,
     int groupCount,
-    Set<GroupMarker> groupMarkers
+    Set<GroupMarker> trackedGroupMarkers,
+    Map<GroupMarker, RelativeGroupLocation> fixedTags
   ) {
     this.states = states;
     this.finalStates = finalStates;
     this.initialState = initialState;
     this.groupCount = groupCount;
-    this.groupMarkers = groupMarkers;
+    this.trackedGroupMarkers = trackedGroupMarkers;
+    this.fixedTags = fixedTags;
   }
 
   /**
@@ -144,10 +151,20 @@ public class TDFA implements DotGraph<Integer, SimpleImmutableEntry<CodeUnitTran
 
     // Construct the match
     final int[] offsets = new int[groupCount * 2];
-    for (int i = 0; i < groupCount; i++) {
-      offsets[2 * i] = registers.getOrDefault(new GroupMarker(true, i), -1);
-      offsets[2 * i + 1] = registers.getOrDefault(new GroupMarker(false, i), -1);
+    for (var trackedGroup : trackedGroupMarkers) {
+      offsets[trackedGroup.arrayOffset()] = registers.getOrDefault(trackedGroup, -1);
     }
+    for (var fixedTag : fixedTags.entrySet()) {
+      final var location = fixedTag.getValue();
+      int value = offsets[location.relativeTo().arrayOffset()];
+      if (value != -1) {
+        value -= location.distance();
+      } else if (location.unavoidable()) {
+        throw new IllegalStateException("Location " + location + " should be unavoidable");
+      }
+      offsets[fixedTag.getKey().arrayOffset()] = value;
+    }
+
     return new ArrayMatchResult(input, offsets);
   }
 
@@ -333,6 +350,8 @@ public class TDFA implements DotGraph<Integer, SimpleImmutableEntry<CodeUnitTran
   public static TDFA fromTNFA(M1Dfa m1) {
 
     final Set<GroupMarker> groupMarkers = m1.groupMarkers();
+    final Set<GroupMarker> trackedGroupMarkers = new HashSet<>(groupMarkers);
+    trackedGroupMarkers.removeAll(m1.fixedTags.keySet());
 
     // Fresh TDFA states come from here
     final IntSupplier dfaStateIdSupplier = new IntSupplier() {
@@ -369,7 +388,7 @@ public class TDFA implements DotGraph<Integer, SimpleImmutableEntry<CodeUnitTran
     final int initialState = dfaStateIdSupplier.getAsInt();
 
     // Mapping from a group marker to its _final_ register
-    final Map<GroupMarker, Register> groupRegisters = groupMarkers
+    final Map<GroupMarker, Register> groupRegisters = trackedGroupMarkers
       .stream()
       .collect(Collectors.toMap(
         Function.identity(),
@@ -378,7 +397,7 @@ public class TDFA implements DotGraph<Integer, SimpleImmutableEntry<CodeUnitTran
 
     // Set up the initial state to visit
     {
-      final SortedMap<GroupMarker, Register> initialRegisters = groupMarkers
+      final SortedMap<GroupMarker, Register> initialRegisters = trackedGroupMarkers
         .stream()
         .collect(Collectors.toMap(
           Function.identity(),
@@ -399,7 +418,7 @@ public class TDFA implements DotGraph<Integer, SimpleImmutableEntry<CodeUnitTran
               StreamSupport
                 .stream(entry.getValue().spliterator(), false)
                 .flatMap((PathMarker marker) -> {
-                  if (marker instanceof GroupMarker groupMarker) {
+                  if (marker instanceof GroupMarker groupMarker && trackedGroupMarkers.contains(groupMarker)) {
                     return Stream.of(groupMarker);
                   } else {
                     return Stream.empty();
@@ -522,7 +541,7 @@ public class TDFA implements DotGraph<Integer, SimpleImmutableEntry<CodeUnitTran
               StreamSupport
                 .stream(epsilonPath.spliterator(), false)
                 .flatMap((PathMarker marker) -> {
-                  if (marker instanceof GroupMarker groupMarker) {
+                  if (marker instanceof GroupMarker groupMarker && trackedGroupMarkers.contains(groupMarker)) {
                     return Stream.of(groupMarker);
                   } else {
                     return Stream.empty();
@@ -617,7 +636,7 @@ public class TDFA implements DotGraph<Integer, SimpleImmutableEntry<CodeUnitTran
       }
     }
 
-    return new TDFA(states, finalStates, initialState, groupMarkers.size() / 2, groupMarkers);
+    return new TDFA(states, finalStates, initialState, groupMarkers.size() / 2, trackedGroupMarkers, m1.fixedTags);
   }
 
   /**
@@ -707,7 +726,7 @@ public class TDFA implements DotGraph<Integer, SimpleImmutableEntry<CodeUnitTran
       BasicBlock.link(fromBlock, block);
 
       // Since this is a final block, mark the group markers as "live out"
-      block.liveOut.addAll(groupMarkers);
+      block.liveOut.addAll(trackedGroupMarkers);
     }
 
     // Run liveness analysis
@@ -825,7 +844,7 @@ public class TDFA implements DotGraph<Integer, SimpleImmutableEntry<CodeUnitTran
     // Updated initial state
     final int newInitialState = canonicalStates.getOrDefault(initialState, initialState);
 
-    return new TDFA(newStates, newFinalStates, newInitialState, groupCount, groupMarkers);
+    return new TDFA(newStates, newFinalStates, newInitialState, groupCount, trackedGroupMarkers, fixedTags);
   }
 
   /**
