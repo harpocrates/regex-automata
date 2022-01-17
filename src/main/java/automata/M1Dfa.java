@@ -53,9 +53,9 @@ final public class M1Dfa implements DotGraph<Integer, M1Transition> {
     this.finalState = finalState;
   }
 
-  public static M1Dfa parse(String pattern) throws ParseException {
+  public static M1Dfa parse(String pattern, boolean wrappingGroup) throws ParseException {
     final var builder = new Builder();
-    final var visited = RegexParser.parse(builder, pattern, true);
+    final var visited = RegexParser.parse(builder, pattern, wrappingGroup);
     return builder.constructDfa(visited);
   }
 
@@ -84,8 +84,7 @@ final public class M1Dfa implements DotGraph<Integer, M1Transition> {
     }
 
     @Override
-    public void addGroupState(Integer from, int groupIdx, boolean isStart, Integer to) {
-      final var marker = isStart ? GroupMarker.start(groupIdx) : GroupMarker.end(groupIdx);
+    public void addGroupState(Integer from, GroupMarker marker, Integer to) {
       transitions.addLast(new BufferedTransition(from, marker, to));
     }
 

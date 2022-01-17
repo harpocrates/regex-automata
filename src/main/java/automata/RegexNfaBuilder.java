@@ -49,11 +49,10 @@ public abstract class RegexNfaBuilder<Q> extends CodePointSetVisitor implements 
    * Register a new state with an empty start/end group transition out of it.
    *
    * @param state state to add
-   * @param groupIdx unique identifier for the group
-   * @param isStart is this the start or end of the group?
+   * @param marker group marker
    * @param to state at the other end of the group transition
    */
-  abstract void addGroupState(Q state, int groupIdx, boolean isStart, Q to);
+  abstract void addGroupState(Q state, GroupMarker marker, Q to);
 
   /**
    * Register a new state with an empty boundary transition out of it.
@@ -259,8 +258,8 @@ public abstract class RegexNfaBuilder<Q> extends CodePointSetVisitor implements 
         final Q argTo = freshState();
         final Q from = freshState();
         final Q argFrom = arg.apply(argTo);
-        addGroupState(argTo, idx, false, to);
-        addGroupState(from, idx, true, argFrom);
+        addGroupState(argTo, GroupMarker.end(idx), to);
+        addGroupState(from, GroupMarker.start(idx), argFrom);
         return from;
       };
     } else {

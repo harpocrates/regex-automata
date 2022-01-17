@@ -698,9 +698,6 @@ public final class CompiledDfaCodegen {
    * an incentive to detect cases where we can emit equivalent but shorter
    * bytecode.
    *
-   * TODO: test for ranges
-   * TODO: consider when `tableswitch` is more compact
-   *
    * @param mv method visitor
    * @param dflt label to jump to if nothing else matches
    * @param values test values in the switch (sorted in ascending order)
@@ -725,7 +722,21 @@ public final class CompiledDfaCodegen {
         mv.visitJumpInsn(Opcodes.GOTO, dflt);
       }
     } else {
-      mv.visitLookupSwitchInsn(dflt, values, labels);
+
+      // If the range of values is dense, we can use a tableswitch to save space
+      boolean useTableSwitch = true;
+      for (int i = 0; i < values.length - 1; i ++) {
+        if (values[i] + 1 != values[i + 1]) {
+          useTableSwitch = false;
+          break;
+        }
+      }
+
+      if (useTableSwitch) {
+        mv.visitTableSwitchInsn(values[0], values[values.length - 1], dflt, labels);
+      } else {
+        mv.visitLookupSwitchInsn(dflt, values, labels);
+      }
     }
   }
 

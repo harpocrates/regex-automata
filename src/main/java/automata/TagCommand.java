@@ -3,7 +3,7 @@ package automata;
 import java.util.Optional;
 import java.util.HashMap;
 
-interface TagCommand {
+public interface TagCommand {
 
   public String dotLabel();
 
