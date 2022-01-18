@@ -70,10 +70,11 @@ public final class CompiledDfaCodegen {
   }
 
   /**
-   * Code generator for a compiled DFA pattern
+   * Code generator for a compiled DFA pattern.
    *
    * @param pattern initial regular expression pattern
-   * @param dfa tagged DFA
+   * @param checkDfa DFA for just checking a full match
+   * @param captureDfa DFA for just capturing a full match
    * @param className name of the anonymous class to generate
    * @param classFlags class flags to set (visibility, `final`, `synthetic` etc.)
    * @param printDebugInfo print debug info and generate code which prints debug info to STDERR
@@ -81,7 +82,8 @@ public final class CompiledDfaCodegen {
    */
   public static final ClassWriter generateDfaPatternSubclass(
     String pattern,
-    TDFA dfa,
+    TDFA checkDfa,
+    TDFA captureDfa,
     String className,
     int classFlags,
     boolean printDebugInfo
@@ -97,9 +99,6 @@ public final class CompiledDfaCodegen {
       OBJECT_CLASS_NAME,
       new String[] { DFAPATTERN_CLASS_NAME }
     );
-
-    // Set of all temporary registers in the TDFA
-    final Set<Register.Temporary> registers = dfa.registers();
 
     // Make constructor (which takes no arguments - the class has no state!)
     {
@@ -127,7 +126,7 @@ public final class CompiledDfaCodegen {
     {
       final var mv = GROUPCOUNT_M.newMethod(cw, Opcodes.ACC_PUBLIC);
       mv.visitCode();
-      mv.visitLdcInsn(dfa.groupCount);
+      mv.visitLdcInsn(captureDfa.groupCount);
       mv.visitInsn(Opcodes.IRETURN);
       mv.visitMaxs(0, 0);
       mv.visitEnd();
@@ -137,7 +136,7 @@ public final class CompiledDfaCodegen {
     {
       final var mv = CHECKMATCHSTATIC_M.newMethod(cw, Opcodes.ACC_PRIVATE);
       mv.visitCode();
-      generateBytecodeForAutomata(mv, dfa, null, printDebugInfo);
+      generateBytecodeForAutomata(mv, checkDfa, false, printDebugInfo);
       mv.visitMaxs(0, 0);
       mv.visitEnd();
     }
@@ -153,11 +152,11 @@ public final class CompiledDfaCodegen {
       mv.visitEnd();
     }
 
-    // `captureMatchState` static helper method
+    // `captureMatchStatic` static helper method
     {
       final var mv = CAPTUREMATCHSTATIC_M.newMethod(cw, Opcodes.ACC_PRIVATE);
       mv.visitCode();
-      generateBytecodeForAutomata(mv, dfa, registers, printDebugInfo);
+      generateBytecodeForAutomata(mv, captureDfa, true, printDebugInfo);
       mv.visitMaxs(0, 0);
       mv.visitEnd();
     }
@@ -245,22 +244,22 @@ public final class CompiledDfaCodegen {
   /**
    * Generate the method body associated with simulating the TDFA automata.
    *
-   * If {@code registers} is {@code null}, this produces a method that tracks
-   * nothing but offset in the string and just returns a boolean indicating
-   * match success or failure. Otherwise, the tags on the DFA will be simulated
-   * using local variables and the final output of the generated method will
-   * be an {@code ArrayMatchResult} (which is {@code null} in the case of no
-   * match).
+   * If {@code captureGroups} is {@code false}, this produces a method that
+   * tracks nothing but offset in the string and just returns a boolean
+   * indicating match success or failure. Otherwise, the tags on the DFA will
+   * be simulated using local variables and the final output of the generated
+   * method will be an {@code ArrayMatchResult} (which is {@code null} in the
+   * case of no match).
    *
    * @param mv method visitor (only argument is the input `CharSequence`)
    * @param dfa tagged DFA
-   * @param registers temporary registers (set to {@code null} to ignore tags)
+   * @param captureGroups whether to return a boolean or a match result
    * @param printDebugInfo print debug info and generate code which prints debug info to STDERR
    */
   private static void generateBytecodeForAutomata(
     MethodVisitor mv,
     TDFA dfa,
-    Set<Register.Temporary> registers,
+    boolean captureGroups,
     boolean printDebugInfo
   ) {
     final int inputVar = 0;  // Input argument: `CharSequence input`
@@ -271,9 +270,9 @@ public final class CompiledDfaCodegen {
 
     // Mapping from temporary register in the TDFA to the JVM locals in this method
     final var temporaryVars = new HashMap<Register.Temporary, Integer>();
-    if (registers != null) {
+    if (captureGroups) {
       int nextLocal = 5;
-      for (final var register : registers) {
+      for (final var register : dfa.registers()) {
         temporaryVars.put(register, nextLocal++);
       }
     }
@@ -288,7 +287,7 @@ public final class CompiledDfaCodegen {
     mv.visitVarInsn(Opcodes.ISTORE, lengthVar);
 
     // Groups variable
-    if (registers != null) {
+    if (captureGroups) {
       pushConstantInt(mv, 2 * dfa.groupCount);
       mv.visitIntInsn(Opcodes.NEWARRAY, Opcodes.T_INT);
       mv.visitInsn(Opcodes.DUP);
@@ -316,7 +315,7 @@ public final class CompiledDfaCodegen {
 
     // Track entry into TDFA
     if (printDebugInfo) {
-      final var localVars = (registers == null) ? "" : " (temporaries " + temporaryVars + ")";
+      final var localVars = captureGroups ? " (temporaries " + temporaryVars + ")" : "";
       genPrintErrConstant(mv, "[TDFA] starting run" + localVars + " on: ", false);
       mv.visitVarInsn(Opcodes.ALOAD, inputVar);
       TOSTRING_M.invokeMethod(mv, OBJECT_CLASS_NAME);
@@ -340,7 +339,7 @@ public final class CompiledDfaCodegen {
       mv.visitIincInsn(offsetVar, 1);
       mv.visitVarInsn(Opcodes.ILOAD, offsetVar);
       mv.visitVarInsn(Opcodes.ILOAD, lengthVar);
-      if (finalCommands == null || registers == null) {
+      if (finalCommands == null || !captureGroups) {
         mv.visitJumpInsn(Opcodes.IF_ICMPGE, (finalCommands == null) ? returnFailure : returnSuccess);
       } else {
         final var notDone = new Label();
@@ -372,7 +371,7 @@ public final class CompiledDfaCodegen {
         codeUnitTempVar,
         dfa.states.get(state),
         stateLabels,
-        registers == null,
+        !captureGroups,
         groupsVar,
         temporaryVars,
         offsetVar,
@@ -384,22 +383,22 @@ public final class CompiledDfaCodegen {
     // Returning unsuccessfully
     mv.visitLabel(returnFailure);
     if (printDebugInfo) {
-      final var returned = (registers == null) ? "0" : "null";
+      final var returned = captureGroups ? "null" : "0";
       genPrintErrConstant(mv, "[TDFA] exiting run (unsuccessful): " + returned, true);
     }
-    if (registers == null) {
-      mv.visitInsn(Opcodes.ICONST_0);
-      mv.visitInsn(Opcodes.IRETURN);
-    } else {
+    if (captureGroups) {
       mv.visitInsn(Opcodes.ACONST_NULL);
       mv.visitInsn(Opcodes.ARETURN);
+    } else {
+      mv.visitInsn(Opcodes.ICONST_0);
+      mv.visitInsn(Opcodes.IRETURN);
     }
 
     // Returning successfully
     mv.visitLabel(returnSuccess);
 
     // Fill in fixed tags
-    if (registers != null) {
+    if (captureGroups) {
       for (final var fixedGroup : dfa.fixedTags.entrySet()) {
         final GroupMarker forGroup = fixedGroup.getKey();
         final RelativeGroupLocation location = fixedGroup.getValue();
@@ -413,17 +412,21 @@ public final class CompiledDfaCodegen {
         pushConstantInt(mv, location.relativeTo().arrayOffset());
         mv.visitInsn(Opcodes.IALOAD);
 
-        // If the group is not unavoidable, we need to only decrement if != -1
-        if (!location.unavoidable()) {
-          final var afterDecrement = new Label();
-          mv.visitInsn(Opcodes.DUP);
-          mv.visitJumpInsn(Opcodes.IFLT, afterDecrement);
-          pushConstantInt(mv, location.distance());
-          mv.visitInsn(Opcodes.ISUB);
-          mv.visitLabel(afterDecrement);
-        } else {
-          pushConstantInt(mv, location.distance());
-          mv.visitInsn(Opcodes.ISUB);
+        // Only if the distance != 0 do we need to decrement
+        if (location.distance() != 0) {
+
+          // If the group is not unavoidable, we must only decrement if != -1
+          if (!location.unavoidable()) {
+            final var afterDecrement = new Label();
+            mv.visitInsn(Opcodes.DUP);
+            mv.visitJumpInsn(Opcodes.IFLT, afterDecrement);
+            pushConstantInt(mv, location.distance());
+            mv.visitInsn(Opcodes.ISUB);
+            mv.visitLabel(afterDecrement);
+          } else {
+            pushConstantInt(mv, location.distance());
+            mv.visitInsn(Opcodes.ISUB);
+          }
         }
 
         mv.visitInsn(Opcodes.IASTORE);
@@ -432,7 +435,7 @@ public final class CompiledDfaCodegen {
 
     if (printDebugInfo) {
       genPrintErrConstant(mv, "[TDFA] exiting run (successful): ", false);
-      if (registers != null) {
+      if (captureGroups) {
         mv.visitIntInsn(Opcodes.ALOAD, groupsVar);
         INTARRTOSTRING_M.invokeMethod(mv, ARRAYS_CLASS_NAME);
         genPrintErrString(mv);
@@ -442,10 +445,7 @@ public final class CompiledDfaCodegen {
     }
 
     // Construct and return the final match result
-    if (registers == null) {
-      mv.visitInsn(Opcodes.ICONST_1);
-      mv.visitInsn(Opcodes.IRETURN);
-    } else {
+    if (captureGroups) {
       mv.visitTypeInsn(Opcodes.NEW, ARRAYMATCHRESULT_CLASS_NAME);
       mv.visitInsn(Opcodes.DUP);
       mv.visitVarInsn(Opcodes.ALOAD, inputVar);
@@ -458,6 +458,9 @@ public final class CompiledDfaCodegen {
         false
       );
       mv.visitInsn(Opcodes.ARETURN);
+    } else {
+      mv.visitInsn(Opcodes.ICONST_1);
+      mv.visitInsn(Opcodes.IRETURN);
     }
 
     if (printDebugInfo) {

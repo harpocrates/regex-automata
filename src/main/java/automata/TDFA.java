@@ -21,6 +21,8 @@ import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.function.Consumer;
 import java.util.function.IntSupplier;
+import java.util.function.IntUnaryOperator;
+import java.util.function.UnaryOperator;
 import static java.util.AbstractMap.SimpleImmutableEntry;
 
 public class TDFA implements DotGraph<Integer, SimpleImmutableEntry<CodeUnitTransition, List<TagCommand>>> {
@@ -795,35 +797,33 @@ public class TDFA implements DotGraph<Integer, SimpleImmutableEntry<CodeUnitTran
   }
 
   /**
-   * Minimize the TDFA
+   * Take a deep copy of the TDFA, merging states and modifying commands.
    *
-   * @return a minimized TDFA
+   * @param mergeStates merge keys into their values (empty map to not merge)
+   * @param cloneCommands modify command lists
+   * @return cloned TDFA
    */
-  public TDFA minimized() {
-
-    // Mapping from states that should be collapsed to the canonical state
-    final Map<Integer, Integer> canonicalStates = new HashMap<>();
-    for (final SortedSet<Integer> partition : minimizedDfaPartition()) {
-      final var canonical = partition.first();
-      for (final var other : partition) {
-        canonicalStates.put(other, canonical);
-      }
-      canonicalStates.remove(canonical);
-    }
+  public TDFA deepCopy(
+    Map<Integer, Integer> mergeStates,
+    UnaryOperator<List<TagCommand>> cloneCommands,
+    IntUnaryOperator updateGroupCount,
+    UnaryOperator<Set<GroupMarker>> cloneTrackedGroupMarkers,
+    UnaryOperator<Map<GroupMarker, RelativeGroupLocation>> cloneFixedTags
+  ) {
 
     // Updated states
     final var newStates = new HashMap<Integer, Map<CodeUnitTransition, TaggedTransition>>();
     for (final var entry : states.entrySet()) {
       final var fromState = entry.getKey();
-      if (canonicalStates.containsKey(fromState)) {
+      if (mergeStates.containsKey(fromState)) {
         continue;
       }
 
       final var newTransitions = new HashMap<CodeUnitTransition, TaggedTransition>();
       for (final var transition : entry.getValue().entrySet()) {
-        final var newCommands = new LinkedList<>(transition.getValue().commands());
+        final var newCommands = cloneCommands.apply(transition.getValue().commands());
         var targetState = transition.getValue().targetState();
-        targetState = canonicalStates.getOrDefault(targetState, targetState);
+        targetState = mergeStates.getOrDefault(targetState, targetState);
         final var newTransition = new TaggedTransition(newCommands, targetState);
         newTransitions.put(transition.getKey(), newTransition);
       }
@@ -834,17 +834,82 @@ public class TDFA implements DotGraph<Integer, SimpleImmutableEntry<CodeUnitTran
     final var newFinalStates = new HashMap<Integer, List<TagCommand>>();
     for (final var entry : finalStates.entrySet()) {
       final var fromState = entry.getKey();
-      if (canonicalStates.containsKey(fromState)) {
+      if (mergeStates.containsKey(fromState)) {
         continue;
       }
 
-      newFinalStates.put(fromState, new LinkedList<>(entry.getValue()));
+      newFinalStates.put(fromState, cloneCommands.apply(entry.getValue()));
     }
 
     // Updated initial state
-    final int newInitialState = canonicalStates.getOrDefault(initialState, initialState);
+    final int newInitialState = mergeStates.getOrDefault(initialState, initialState);
 
-    return new TDFA(newStates, newFinalStates, newInitialState, groupCount, trackedGroupMarkers, fixedTags);
+    return new TDFA(
+      newStates,
+      newFinalStates,
+      newInitialState,
+      updateGroupCount.applyAsInt(groupCount),
+      cloneTrackedGroupMarkers.apply(trackedGroupMarkers),
+      cloneFixedTags.apply(fixedTags)
+    );
+  }
+
+  /**
+   * Minimize the TDFA while also removing all commands.
+   *
+   * The output TDFA should accept and reject the same inputs, but it won't
+   * carry any tags or groups.
+   *
+   * @return minimized TDFA without any groups
+   */
+  public TDFA minimizeWithoutTagCommands() {
+
+    // Mapping from states that should be collapsed to the canonical state
+    final Map<Integer, Integer> canonicalStates = new HashMap<>();
+    for (final SortedSet<Integer> partition : minimizedDfaPartition(true)) {
+      final var canonical = partition.first();
+      for (final var other : partition) {
+        canonicalStates.put(other, canonical);
+      }
+      canonicalStates.remove(canonical);
+    }
+
+    return deepCopy(
+      canonicalStates,
+      k -> Collections.emptyList(),
+      i -> 0,
+      m -> Collections.emptySet(),
+      t -> Collections.emptyMap()
+    );
+  }
+
+  /**
+   * Minimize the TDFA while respecting commands.
+   *
+   * The output TDFA should have exactly the same end behaviour as the initial
+   * TDFA, but some indistinguishable states may be merged.
+   *
+   * @return equivalent minimized TDFA
+   */
+  public TDFA minimized() {
+
+    // Mapping from states that should be collapsed to the canonical state
+    final Map<Integer, Integer> canonicalStates = new HashMap<>();
+    for (final SortedSet<Integer> partition : minimizedDfaPartition(false)) {
+      final var canonical = partition.first();
+      for (final var other : partition) {
+        canonicalStates.put(other, canonical);
+      }
+      canonicalStates.remove(canonical);
+    }
+
+    return deepCopy(
+      canonicalStates,
+      LinkedList::new,
+      IntUnaryOperator.identity(),
+      UnaryOperator.identity(),
+      UnaryOperator.identity()
+    );
   }
 
   /**
@@ -853,9 +918,10 @@ public class TDFA implements DotGraph<Integer, SimpleImmutableEntry<CodeUnitTran
    * This uses a variant of Hopcroft's algorithm, except that equivalence of
    * transitions includes the tags traversed (including final ones).
    *
+   * @param ignoreCommands only enable this if you intend to discard tags
    * @return a partition of the TDFA states
    */
-  public Set<SortedSet<Integer>> minimizedDfaPartition() {
+  public Set<SortedSet<Integer>> minimizedDfaPartition(boolean ignoreCommands) {
 
     record ReversedTaggedTransition(
       CodeUnitTransition codeUnit,
@@ -868,7 +934,9 @@ public class TDFA implements DotGraph<Integer, SimpleImmutableEntry<CodeUnitTran
       final int fromState = entry.getKey();
       for (final var transitions : entry.getValue().entrySet()) {
         final CodeUnitTransition codeUnit = transitions.getKey();
-        final Set<TagCommand> commands = new HashSet<>(transitions.getValue().commands());
+        final Set<TagCommand> commands = ignoreCommands
+          ? Collections.emptySet()
+          : new HashSet<>(transitions.getValue().commands());
         final int toState = transitions.getValue().targetState();
         reversedTransitions
           .computeIfAbsent(toState, k -> new HashMap<>())
@@ -880,18 +948,22 @@ public class TDFA implements DotGraph<Integer, SimpleImmutableEntry<CodeUnitTran
     // Set up initial partition
     final var partition = new HashSet<SortedSet<Integer>>();
     final var sortedSetCollector = Collectors.<Integer, SortedSet<Integer>>toCollection(TreeSet::new);
-    partition.addAll(
-      finalStates
-        .entrySet()
-        .stream()
-        .collect(
-          Collectors.groupingBy(
-            Map.Entry::getValue,
-            Collectors.mapping(Map.Entry::getKey, sortedSetCollector)
+    if (ignoreCommands) {
+      partition.add(new TreeSet(finalStates.keySet()));
+    } else {
+      partition.addAll(
+        finalStates
+          .entrySet()
+          .stream()
+          .collect(
+            Collectors.groupingBy(
+              Map.Entry::getValue,
+              Collectors.mapping(Map.Entry::getKey, sortedSetCollector)
+            )
           )
-        )
-        .values()
-    );
+          .values()
+      );
+    }
     partition.add(
       states
         .keySet()

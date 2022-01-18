@@ -19,9 +19,12 @@ public interface DfaPattern {
   public static DfaPattern compile(String regex)
   throws java.io.IOException, ParseException, IllegalAccessException, NoSuchMethodException, InstantiationException, InvocationTargetException {
     final var nfa = M1Dfa.parse(regex, true);
-    var dfa = TDFA.fromTNFA(nfa);
-    while (dfa.simplifyTagCommands());
-    dfa = dfa.minimized();
+
+    var captureDfa = TDFA.fromTNFA(nfa);
+    while (captureDfa.simplifyTagCommands());
+    captureDfa = captureDfa.minimized();
+
+    final var checkDfa = captureDfa.minimizeWithoutTagCommands();
 
     final String className = "automata/DfaPattern$Compiled";
     final boolean debugInfo = false;
@@ -29,7 +32,8 @@ public interface DfaPattern {
     final byte[] classBytes = CompiledDfaCodegen
       .generateDfaPatternSubclass(
         regex,
-        dfa,
+        checkDfa,
+        captureDfa,
         className,
         classFlags,
         debugInfo
