@@ -1,7 +1,8 @@
 package automata
 
+import automata.parser.{RegexVisitor, BuiltinClass, Boundary}
 import scala.annotation.switch
-import java.util.OptionalInt;
+import java.util.OptionalInt
 
 /** Rendered output
   *
@@ -158,16 +159,16 @@ object RegexPrinter extends RegexVisitor[RenderedWithPriority, RenderedWithPrior
       priority = Priority.Top
     )
 
-  override def visitBoundary(boundary: RegexVisitor.Boundary) =
+  override def visitBoundary(boundary: Boundary) =
     RenderedWithPriority(
       rendered = boundary match {
-        case RegexVisitor.Boundary.BEGINNING_OF_LINE => "^"
-        case RegexVisitor.Boundary.END_OF_LINE => "$"
-        case RegexVisitor.Boundary.WORD_BOUNDARY => "\\b"
-        case RegexVisitor.Boundary.NON_WORD_BOUNDARY => "\\B"
-        case RegexVisitor.Boundary.BEGINNING_OF_INPUT => "\\A"
-        case RegexVisitor.Boundary.END_OF_INPUT_OR_TERMINATOR => "\\Z"
-        case RegexVisitor.Boundary.END_OF_INPUT => "\\z"
+        case Boundary.BEGINNING_OF_LINE => "^"
+        case Boundary.END_OF_LINE => "$"
+        case Boundary.WORD_BOUNDARY => "\\b"
+        case Boundary.NON_WORD_BOUNDARY => "\\B"
+        case Boundary.BEGINNING_OF_INPUT => "\\A"
+        case Boundary.END_OF_INPUT_OR_TERMINATOR => "\\Z"
+        case Boundary.END_OF_INPUT => "\\z"
       },
       priority = Priority.Top
     )
@@ -181,20 +182,20 @@ object RegexPrinter extends RegexVisitor[RenderedWithPriority, RenderedWithPrior
       priority = Priority.Top
     )
 
-  override def visitBuiltinClass(cls: CharClassVisitor.BuiltinClass) =
+  override def visitBuiltinClass(cls: BuiltinClass) =
     RenderedWithPriority(
       rendered = cls match {
-        case CharClassVisitor.BuiltinClass.DOT => "."
-        case CharClassVisitor.BuiltinClass.DIGIT => "\\d"
-        case CharClassVisitor.BuiltinClass.NON_DIGIT => "\\D"
-        case CharClassVisitor.BuiltinClass.HORIZONTAL_WHITE_SPACE => "\\h"
-        case CharClassVisitor.BuiltinClass.NON_HORIZONTAL_WHITE_SPACE => "\\H"
-        case CharClassVisitor.BuiltinClass.WHITE_SPACE => "\\s"
-        case CharClassVisitor.BuiltinClass.NON_WHITE_SPACE => "\\S"
-        case CharClassVisitor.BuiltinClass.VERTICAL_WHITE_SPACE => "\\v"
-        case CharClassVisitor.BuiltinClass.NON_VERTICAL_WHITE_SPACE => "\\V"
-        case CharClassVisitor.BuiltinClass.WORD => "\\w"
-        case CharClassVisitor.BuiltinClass.NON_WORD => "\\W"
+        case BuiltinClass.DOT => "."
+        case BuiltinClass.DIGIT => "\\d"
+        case BuiltinClass.NON_DIGIT => "\\D"
+        case BuiltinClass.HORIZONTAL_WHITE_SPACE => "\\h"
+        case BuiltinClass.NON_HORIZONTAL_WHITE_SPACE => "\\H"
+        case BuiltinClass.WHITE_SPACE => "\\s"
+        case BuiltinClass.NON_WHITE_SPACE => "\\S"
+        case BuiltinClass.VERTICAL_WHITE_SPACE => "\\v"
+        case BuiltinClass.NON_VERTICAL_WHITE_SPACE => "\\V"
+        case BuiltinClass.WORD => "\\w"
+        case BuiltinClass.NON_WORD => "\\W"
       },
       priority = Priority.Top
     )

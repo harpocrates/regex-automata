@@ -1,10 +1,24 @@
 package automata;
 
-import java.text.ParseException;
+import automata.codegen.CompiledDfa;
+import automata.graph.Tdfa;
+import automata.graph.Tnfa;
 import java.lang.invoke.MethodHandles;
 import java.lang.reflect.InvocationTargetException;
+import java.util.regex.PatternSyntaxException;
 import org.objectweb.asm.Opcodes;
 
+/**
+ * DFA-backed regular expression pattern.
+ *
+ * This aspires to have an interface and semantics similar to {@code Pattern}
+ * and {@code Matcher} from the JDK's {@code java.util.regex}, but with better
+ * algorithmic complexity and much faster constant overheads. On the flip side,
+ * compilation of the pattern may take longer, it may use more memory, and some
+ * backtracking features are not supported.
+ *
+ * @author Alec Theriault
+ */
 public interface DfaPattern {
 
   /**
@@ -17,10 +31,10 @@ public interface DfaPattern {
    * @return compiled DFA pattern
    */
   public static DfaPattern compile(String regex)
-  throws java.io.IOException, ParseException, IllegalAccessException, NoSuchMethodException, InstantiationException, InvocationTargetException {
-    final var nfa = M1Dfa.parse(regex, true);
+  throws java.io.IOException, PatternSyntaxException, IllegalAccessException, NoSuchMethodException, InstantiationException, InvocationTargetException {
+    final var nfa = Tnfa.parse(regex, true);
 
-    var captureDfa = TDFA.fromTNFA(nfa);
+    var captureDfa = Tdfa.fromTnfa(nfa);
     while (captureDfa.simplifyTagCommands());
     captureDfa = captureDfa.minimized();
 
@@ -29,7 +43,7 @@ public interface DfaPattern {
     final String className = "automata/DfaPattern$Compiled";
     final boolean debugInfo = false;
     final int classFlags = Opcodes.ACC_PRIVATE | Opcodes.ACC_FINAL | Opcodes.ACC_SYNTHETIC;
-    final byte[] classBytes = CompiledDfaCodegen
+    final byte[] classBytes = CompiledDfa
       .generateDfaPatternSubclass(
         regex,
         checkDfa,
@@ -60,7 +74,7 @@ public interface DfaPattern {
    * @param regex source of the pattern
    * @return compiled DFA pattern
    */
-  public static InterpretableDfaPattern interpreted(String regex) throws ParseException {
+  public static InterpretableDfaPattern interpreted(String regex) throws PatternSyntaxException {
     return new InterpretableDfaPattern(regex);
   }
 
@@ -70,15 +84,39 @@ public interface DfaPattern {
    * @param input character sequence to match
    * @return extracted capture groups, or `null` if the pattern didn't match
    */
-  public ArrayMatchResult captureMatch(CharSequence input);
+  public default ArrayMatchResult captureMatch(CharSequence input) {
+    return captureMatch(input, 0, input.length());
+  }
 
   /**
-   * Check if an input string matches the DFA pattern
+   * Match an input string to the DFA pattern and extract capture groups
    *
    * @param input character sequence to match
-   * @return whether the input matches the pattern
+   * @param startOffset offset in the input where the pattern starts matching
+   * @param endOffset offset in the input where the pattern ends matching
+   * @return extracted capture groups, or `null` if the pattern didn't match
    */
-  public boolean checkMatch(CharSequence input);
+  public ArrayMatchResult captureMatch(CharSequence input, int startOffset, int endOffset);
+
+  /**
+   * Check if an input string matches the DFA pattern.
+   *
+   * @param input character sequence to match
+   * @return whether the entire input matches the pattern
+   */
+  public default boolean checkMatch(CharSequence input) {
+    return checkMatch(input, 0, input.length());
+  }
+
+  /**
+   * Check if a subsequence of an input string matches the DFA pattern.
+   *
+   * @param input character sequence to match
+   * @param startOffset offset in the input where the pattern starts matching
+   * @param endOffset offset in the input where the pattern ends matching
+   * @return whether the subsequence of the input matches the pattern
+   */
+  public boolean checkMatch(CharSequence input, int startOffset, int endOffset);
 
   /**
    * Returns initial regular expression from which the pattern was derived.
@@ -99,36 +137,36 @@ public interface DfaPattern {
     private final boolean printDebugInfo;
 
     // Intermediate states
-    public final M1Dfa m1;
-    public final TDFA dfa;
+    public final Tnfa nfa;
+    public final Tdfa dfa;
 
     public String pattern() {
       return pattern;
     }
 
-    public boolean checkMatch(CharSequence input) {
-      return dfa.checkSimulate(input, printDebugInfo);
+    public boolean checkMatch(CharSequence input, int startOffset, int endOffset) {
+      return dfa.checkSimulate(input, startOffset, endOffset, printDebugInfo);
     }
 
-    public ArrayMatchResult captureMatch(CharSequence input) {
-      return dfa.captureSimulate(input, printDebugInfo);
+    public ArrayMatchResult captureMatch(CharSequence input, int startOffset, int endOffset) {
+      return dfa.captureSimulate(input, startOffset, endOffset, printDebugInfo);
     }
 
     public int groupCount() {
       return dfa.groupCount;
     }
 
-    public InterpretableDfaPattern(String pattern, boolean printDebugInfo) throws ParseException {
+    public InterpretableDfaPattern(String pattern, boolean printDebugInfo) throws PatternSyntaxException {
       this.pattern = pattern;
       this.printDebugInfo = printDebugInfo;
-      this.m1 = M1Dfa.parse(this.pattern, true);
+      this.nfa = Tnfa.parse(this.pattern, true);
 
-      var dfa = TDFA.fromTNFA(this.m1);
+      var dfa = Tdfa.fromTnfa(this.nfa);
       while (dfa.simplifyTagCommands());
       this.dfa = dfa.minimized();
     }
 
-    public InterpretableDfaPattern(String pattern) throws ParseException {
+    public InterpretableDfaPattern(String pattern) throws PatternSyntaxException {
       this(pattern, false);
     }
 

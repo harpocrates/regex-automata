@@ -1,5 +1,6 @@
-package automata;
+package automata
 
+import automata.parser.BuiltinClass
 import org.scalacheck.Arbitrary
 import org.scalacheck.Gen
 import scala.annotation.unused
@@ -46,7 +47,7 @@ trait ReGenerator extends ArbitraryExtensions {
     if (generateBuiltinClasses) {
       // The `.` character class doesn't work inside brackets, so don't generate it here
       variants ::= 1 -> Gen
-        .oneOf(CharClassVisitor.BuiltinClass.CHARACTERS.values.asScala.toSeq)
+        .oneOf(BuiltinClass.CHARACTERS.values.asScala.toSeq)
         .map(Re.BuiltinClass(_))
     }
     val smallVariants = variants.take(3)
@@ -113,7 +114,7 @@ trait ReGenerator extends ArbitraryExtensions {
         variants ::= 1 -> Gen.resultOf(Re.Boundary(_))
       }
       if (generateBuiltinClasses) {
-        variants ::= 1 -> Gen.const(Re.BuiltinClass(CharClassVisitor.BuiltinClass.DOT))
+        variants ::= 1 -> Gen.const(Re.BuiltinClass(BuiltinClass.DOT))
       }
       val smallVariants = variants.take(3)
 

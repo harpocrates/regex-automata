@@ -1,5 +1,6 @@
 package automata
 
+import automata.parser.{RegexParser, BuiltinClass => JBuiltinClass, Boundary => JBoundary, RegexVisitor, CharClassVisitor}
 import scala.jdk.OptionConverters._
 import java.util.OptionalInt;
 
@@ -100,7 +101,7 @@ object Re extends RegexVisitor[Re, CharClass] {
   }
 
   /** Zero-width boundary */
-  final case class Boundary(boundary: RegexVisitor.Boundary) extends Re {
+  final case class Boundary(boundary: JBoundary) extends Re {
     override def acceptRegex[A](visitor: RegexVisitor[A, _]): A =
       visitor.visitBoundary(boundary)
   }
@@ -144,7 +145,7 @@ object Re extends RegexVisitor[Re, CharClass] {
   }
 
   /** Builtin character class */
-  final case class BuiltinClass(cls: CharClassVisitor.BuiltinClass) extends CharClass {
+  final case class BuiltinClass(cls: JBuiltinClass) extends CharClass {
     override def acceptCharClass[A](visitor: CharClassVisitor[A]): A =
       visitor.visitBuiltinClass(cls)
   }
@@ -188,13 +189,13 @@ object Re extends RegexVisitor[Re, CharClass] {
   override def visitGroup(arg: Re, groupIndex: OptionalInt) =
     if (groupIndex.isPresent()) Re.Group(arg, groupIndex.getAsInt()) else arg
 
-  override def visitBoundary(boundary: RegexVisitor.Boundary) =
+  override def visitBoundary(boundary: JBoundary) =
     Re.Boundary(boundary)
 
   override def visitCharacterClass(cls: CharClass) =
     cls
 
-  override def visitBuiltinClass(cls: CharClassVisitor.BuiltinClass) =
+  override def visitBuiltinClass(cls: JBuiltinClass) =
     Re.BuiltinClass(cls)
 
   def parse(src: String): Re = RegexParser.parse(Re, src, false)

@@ -1,19 +1,30 @@
 package automata;
 
 import java.util.Iterator;
+import java.util.regex.MatchResult;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
-import java.util.regex.MatchResult;
 
+/**
+ * Immutable match result.
+ *
+ * This is designed to be minimal: it includes only a reference to the initial
+ * source text and an array of the starts and ends of capture groups.
+ */
 public class ArrayMatchResult implements MatchResult {
 
   /**
    * Source text against which the regular expression was run.
+   *
+   * This is not defensively copied on construction, so it will reflect updates
+   * that occur after the match result is constructed.
    */
   public final CharSequence sourceText;
 
   /**
    * Offsets of start/end groups in the source text.
+   *
+   * Length is equal to {@code 2 * (groupCount + 1)}.
    *
    * Offsets for the start of capture groups are stored at even indices while
    * offsets for the end of capture groups are stored at odd indices. Start
@@ -26,8 +37,6 @@ public class ArrayMatchResult implements MatchResult {
 
   /**
    * Count of capture groups in the pattern.
-   *
-   * The length of {@code offsets} divided by two minus one.
    */
   private final int groupCount;
 
