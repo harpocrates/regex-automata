@@ -14,9 +14,11 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import java.util.function.Function;
 import org.objectweb.asm.Label;
 import org.objectweb.asm.MethodVisitor;
@@ -207,7 +209,10 @@ class TdfaMethodCodegen extends BytecodeHelpers {
       Method.CHARAT_M.invokeMethod(mv, Method.CHARSEQUENCE_CLASS_NAME);
 
       // Generate the transition
-      visitTransition(dfa.states.get(state));
+      final Optional<List<TagCommand>> acceptingFinalCommands = dfa.prefixMode
+        ? Optional.ofNullable(finalCommands)
+        : Optional.empty();
+      visitTransition(dfa.states.get(state), acceptingFinalCommands);
     }
 
     // Final blocks
@@ -382,20 +387,40 @@ class TdfaMethodCodegen extends BytecodeHelpers {
    *     containing the scrutinee.
    *
    * @param transitionsMap transitions out of the current state
+   * @param finalCommandsOpt final commands to run if out of input (otherwise fail)
    */
-  private void visitTransition(Map<CodeUnitTransition, Tdfa.TaggedTransition> transitionsMap) {
-    final Label noTransitionFound = returnFailure;
+  private void visitTransition(
+    Map<CodeUnitTransition, Tdfa.TaggedTransition> transitionsMap,
+    Optional<List<TagCommand>> finalAcceptingCommandsOpt
+  ) {
 
     // Commands that occur for _all_ transitions (hoist these to before branching)
     final Set<TagCommand> sharedCommands = captureGroups
-      ? transitionsMap
-          .values()
-          .stream()
-          .map(Tdfa.TaggedTransition::commands)
+      ? Stream
+          .<List<TagCommand>>concat(
+            transitionsMap.values().stream().map(Tdfa.TaggedTransition::commands),
+            finalAcceptingCommandsOpt.stream()
+          )
           .<Set<TagCommand>>map(HashSet::new)
           .reduce((s1, s2) -> { s1.retainAll(s2); return s1; })
           .orElse(Collections.emptySet())
       : Collections.emptySet();
+    final var filteredFinalAcceptingCommandsOpt = finalAcceptingCommandsOpt
+      .map(finalCommands ->
+        finalCommands
+          .stream()
+          .filter(command -> !sharedCommands.contains(command))
+          .collect(Collectors.toUnmodifiableList())
+      );
+
+    /* Failing to find a transition is only a failure if we don't have final
+     * accepting commands. However, if we have a non-empty set of accepting
+     * commands, we will still need an extra block to run those before jumping
+     * to the success label.
+     */
+    final Label noTransitionFound = filteredFinalAcceptingCommandsOpt
+      .map(commands -> (commands.isEmpty()) ? returnSuccess : new Label())
+      .orElse(returnFailure);
 
     record TargetLabel(Label stateLabel, List<TagCommand> commands) { }
 
@@ -573,6 +598,18 @@ class TdfaMethodCodegen extends BytecodeHelpers {
       }
 
       mv.visitJumpInsn(Opcodes.GOTO, noTransitionFound);
+    }
+
+    /* If there the no-transition-found case has a final block of commands,
+     * place that block and then return success.
+     */
+    if (filteredFinalAcceptingCommandsOpt.isPresent()) {
+      final var acceptingCommands = filteredFinalAcceptingCommandsOpt.get();
+      if (!acceptingCommands.isEmpty()) {
+        mv.visitLabel(noTransitionFound);
+        visitTagCommands(filteredFinalAcceptingCommandsOpt.get());
+        mv.visitJumpInsn(Opcodes.GOTO, returnSuccess);
+      }
     }
   }
 

@@ -74,13 +74,25 @@ public class Tdfa implements DotGraph<Integer, SimpleImmutableEntry<CodeUnitTran
    */
   public final Map<GroupMarker, RelativeGroupLocation> fixedTags;
 
+  /**
+   * This controls the simulation behaviour when in an accepting state and
+   * finding no matching transition for the next code unit.
+   *
+   * If `false`, the simulation behaviour is to fail. If `true`, the simulation
+   * behaviour is to use the final transition.
+   *
+   * TODO: consider better names for this
+   */
+  public final boolean prefixMode;
+
   public Tdfa(
     Map<Integer, Map<CodeUnitTransition, TaggedTransition>> states,
     Map<Integer, List<TagCommand>> finalStates,
     int initialState,
     int groupCount,
     Set<GroupMarker> trackedGroupMarkers,
-    Map<GroupMarker, RelativeGroupLocation> fixedTags
+    Map<GroupMarker, RelativeGroupLocation> fixedTags,
+    boolean prefixMode
   ) {
     this.states = states;
     this.finalStates = finalStates;
@@ -88,6 +100,7 @@ public class Tdfa implements DotGraph<Integer, SimpleImmutableEntry<CodeUnitTran
     this.groupCount = groupCount;
     this.trackedGroupMarkers = trackedGroupMarkers;
     this.fixedTags = fixedTags;
+    this.prefixMode = prefixMode;
   }
 
   /**
@@ -124,6 +137,10 @@ public class Tdfa implements DotGraph<Integer, SimpleImmutableEntry<CodeUnitTran
         .filter(entry -> entry.getKey().codeUnitSet().contains(codeUnit))
         .findFirst();
       if (!matchingTransition.isPresent()) {
+        if (prefixMode && finalStates.containsKey(currentState)) {
+          System.err.println("[TDFA] completing prefix run at " + currentState + "; no transition for " + codeUnit);
+          break;
+        }
         if (printDebugInfo) {
           System.err.println("[TDFA] ending run at " + currentState + "; no transition for " + codeUnit);
         }
@@ -208,6 +225,10 @@ public class Tdfa implements DotGraph<Integer, SimpleImmutableEntry<CodeUnitTran
         .filter(entry -> entry.getKey().codeUnitSet().contains(codeUnit))
         .findFirst();
       if (!matchingTransition.isPresent()) {
+        if (prefixMode && finalStates.containsKey(currentState)) {
+          System.err.println("[TDFA] completing prefix run at " + currentState + "; no transition for " + codeUnit);
+          break;
+        }
         if (printDebugInfo) {
           System.err.println("[TDFA] ending run at " + currentState + "; no transition for " + codeUnit);
         }
@@ -274,27 +295,43 @@ public class Tdfa implements DotGraph<Integer, SimpleImmutableEntry<CodeUnitTran
   ) { }
 
   /**
+   * Key for {@link DfaState}.
+   *
+   * @param nfaStateIds prioritized list of NFA states in the DFA state
+   * @param prefixAlreadyMatched if the TDFA is in prefix mode and a prefix has already matched
+   */
+  private record DfaStateKey(
+    List<Integer> nfaStateIds,
+    boolean prefixAlreadyMatched
+  ) { }
+
+  /**
    * State in the TDFA.
    *
    * @param dfaStateId unique ID to identify the state
    * @param rows rowconfigurations in the state
+   * @param prefixAlreadyMatched if the TDFA is in prefix mode and a prefix has already matched
    */
   private record DfaState(
     int dfaStateId,
-    List<RowConfiguration> rows
+    List<RowConfiguration> rows,
+    boolean prefixAlreadyMatched
   ) {
 
-    public List<Integer> nfaStates() {
-      return rows
+    public DfaStateKey key() {
+      final List<Integer> nfaStates = rows
         .stream()
         .mapToInt(RowConfiguration::nfaState)
         .boxed()
         .collect(Collectors.toUnmodifiableList());
+      return new DfaStateKey(nfaStates, prefixAlreadyMatched);
     }
 
     public boolean containsNfaState(int nfaState) {
       return rows.stream().anyMatch(r -> r.nfaState() == nfaState);
     }
+
+    private static final Optional<Map<Register, Register>> NO_ISOMORPHISM = Optional.empty();
 
     /**
      * Check if this is the same state as another, up to register isomorphism.
@@ -304,9 +341,13 @@ public class Tdfa implements DotGraph<Integer, SimpleImmutableEntry<CodeUnitTran
      * registers must exist. The bijection is then used to map transitions to
      * the "that" state into transitions to "this" state.
      *
-     * @return map of registers from other state to this
+     * @return map of registers from other state to this if isomorphic
      */
-    public Map<Register, Register> isomorphicTo(DfaState that) {
+    public Optional<Map<Register, Register>> isomorphicTo(DfaState that) {
+
+      if (prefixAlreadyMatched != that.prefixAlreadyMatched) {
+        return NO_ISOMORPHISM;
+      }
 
       final var thisRows = rows.iterator();
       final var thatRows = that.rows.iterator();
@@ -321,12 +362,12 @@ public class Tdfa implements DotGraph<Integer, SimpleImmutableEntry<CodeUnitTran
 
         // Ordered NFA state must match
         if (thisRow.nfaState() != thatRow.nfaState()) {
-          return null;
+          return NO_ISOMORPHISM;
         }
 
         // Lookahead tags must match
         if (!thisRow.lookaheadOperations().equals(thatRow.lookaheadOperations())) {
-          return null;
+          return NO_ISOMORPHISM;
         }
 
         // Registers must match up to isomorphism
@@ -339,21 +380,25 @@ public class Tdfa implements DotGraph<Integer, SimpleImmutableEntry<CodeUnitTran
 
           final Register thatPrevious = thisToThat.put(thisRegister, thatRegister);
           if (!(thatPrevious == null || thatPrevious.equals(thatRegister))) {
-            return null;
+            return NO_ISOMORPHISM;
           }
 
           final Register thisPrevious = thatToThis.put(thatRegister, thisRegister);
           if (!(thisPrevious == null || thisPrevious.equals(thisRegister))) {
-            return null;
+            return NO_ISOMORPHISM;
           }
         }
 
         if (thisRegisters.hasNext() != thatRegisters.hasNext()) {
-          return null;
+          return NO_ISOMORPHISM;
         }
       }
 
-      return (thisRows.hasNext() != thatRows.hasNext()) ? null : thatToThis;
+      if (thisRows.hasNext() != thatRows.hasNext()) {
+        return NO_ISOMORPHISM;
+      } else {
+        return Optional.of(thatToThis);
+      }
     }
   }
 
@@ -361,9 +406,10 @@ public class Tdfa implements DotGraph<Integer, SimpleImmutableEntry<CodeUnitTran
    * Determinization algorithm for constructing a TDFA from a TNFA.
    *
    * @param nfa non-deterministic tagged automata
+   * @param prefixMode should the TDFA accept matches that end at an accepting state without exhausting input?
    * @return deterministc tagged automata
    */
-  public static Tdfa fromTnfa(Tnfa nfa) {
+  public static Tdfa fromTnfa(Tnfa nfa, boolean prefixMode) {
 
     final Set<GroupMarker> groupMarkers = nfa.groupMarkers();
     final Set<GroupMarker> trackedGroupMarkers = new HashSet<>(groupMarkers);
@@ -389,13 +435,14 @@ public class Tdfa implements DotGraph<Integer, SimpleImmutableEntry<CodeUnitTran
       }
     };
 
+
     /* Every time we visit a new DFA state, we use its ordered set of NFA
      * states to lookup the list of possibly matching DFA states. Next, we
      * comb through these looking for a state that is isomorphic. If we find
      * one, we merge with that state. If not, we add the state here (and push
      * it onto the stack of states to visit with a fresh ID).
      */
-    final var seenStates = new HashMap<List<Integer>, List<DfaState>>();
+    final var seenStates = new HashMap<DfaStateKey, List<DfaState>>();
     final var toVisit = new Stack<DfaState>();
 
     // These only get populated after a state is popped off of `toVisit`
@@ -422,33 +469,32 @@ public class Tdfa implements DotGraph<Integer, SimpleImmutableEntry<CodeUnitTran
           TreeMap::new
         ));
 
-      final var initialDfaState = new DfaState(
-        initialState,
-        nfa
-          .epsilonReachable(nfa.initialState)
-          .entrySet()
-          .stream()
-          .map((Map.Entry<Integer, PathMarkers> entry) ->
-            new RowConfiguration(
-              entry.getKey(),
-              initialRegisters,
-              StreamSupport
-                .stream(entry.getValue().spliterator(), false)
-                .flatMap((PathMarker marker) -> {
-                  if (marker instanceof GroupMarker groupMarker && trackedGroupMarkers.contains(groupMarker)) {
-                    return Stream.of(groupMarker);
-                  } else {
-                    return Stream.empty();
-                  }
-                })
-                .collect(Collectors.toSet())
-            )
+      final var rows = nfa
+        .epsilonReachable(nfa.initialState)
+        .entrySet()
+        .stream()
+        .map((Map.Entry<Integer, PathMarkers> entry) ->
+          new RowConfiguration(
+            entry.getKey(),
+            initialRegisters,
+            StreamSupport
+              .stream(entry.getValue().spliterator(), false)
+              .flatMap((PathMarker marker) -> {
+                if (marker instanceof GroupMarker groupMarker && trackedGroupMarkers.contains(groupMarker)) {
+                  return Stream.of(groupMarker);
+                } else {
+                  return Stream.empty();
+                }
+              })
+              .collect(Collectors.toSet())
           )
-          .collect(Collectors.toList())
-      );
+        )
+        .collect(Collectors.toUnmodifiableList());
+
+      final var initialDfaState = new DfaState(initialState, rows, false);
 
       seenStates
-        .computeIfAbsent(initialDfaState.nfaStates(), k -> new LinkedList<>())
+        .computeIfAbsent(initialDfaState.key(), k -> new LinkedList<>())
         .add(initialDfaState);
       toVisit.push(initialDfaState);
     }
@@ -466,6 +512,27 @@ public class Tdfa implements DotGraph<Integer, SimpleImmutableEntry<CodeUnitTran
         .collect(Collectors.toMap(Function.identity(), m -> registerSupplier.get()));
 
       final var transitions = new HashMap<CodeUnitTransition, Map.Entry<Set<Register>, DfaState>>();
+      final boolean isFinalState = nextState.containsNfaState(nfa.finalState);
+      final boolean isAccepting = isFinalState || nextState.prefixAlreadyMatched();
+
+      /* Prefix mode: states which were not final in the NFA can become final
+       * if we've already done through some state that was final in the NFA.
+       * The final transition is a no-op for these, since the right group values
+       * are all already set to group markers from the last time the NFA final
+       * state was visited
+       */
+      if (prefixMode && !isFinalState && nextState.prefixAlreadyMatched()) {
+        finalStates.put(nextState.dfaStateId(), new LinkedList<>());
+      }
+
+      /* Prefix mode: states which were final in the NFA but also have outgoing
+       * transitions must have those final commands tacked on to any other
+       * outgoing transition. And DFA state where the prefix already matched
+       * must be accepting and have the last matching positions stored in the
+       * group registers.
+       */
+      List<TagCommand> finalCommands = null;
+
       for (final RowConfiguration row : nextState.rows()) {
 
         // These are the registers that target row configurations will use
@@ -488,32 +555,24 @@ public class Tdfa implements DotGraph<Integer, SimpleImmutableEntry<CodeUnitTran
           .map(updatedRegisters::get)
           .collect(Collectors.toSet());
 
-        // Check if the NFA state is accepting
+        // Check if the NFA state is accepting.
         if (row.nfaState == nfa.finalState) {
-          final List<TagCommand> commands = Stream
-            .concat(
-              transitionOperations
-                .stream()
-                .<TagCommand>map(t -> new TagCommand.CurrentPosition(t)),
-              groupRegisters
-                .entrySet()
-                .stream()
-                .<TagCommand>map(m -> {
-                  final Register copyFrom = updatedRegisters.get(m.getKey());
-                  final Register assignTo = m.getValue();
+          finalCommands = groupRegisters
+            .entrySet()
+            .stream()
+            .<TagCommand>map(m -> {
+              final Register copyFrom = updatedRegisters.get(m.getKey());
+              final Register assignTo = m.getValue();
 
-                  // This is needed to ensure the invariant that we never copy
-                  // a variable in the same set of commands as assigning to it
-                  if (transitionOperations.contains(copyFrom)) {
-                    return new TagCommand.CurrentPosition(assignTo);
-                  } else {
-                    return new TagCommand.Copy(assignTo, copyFrom);
-                  }
-                })
-            )
+              if (transitionOperations.contains(copyFrom)) {
+                return new TagCommand.CurrentPosition(assignTo);
+              } else {
+                return new TagCommand.Copy(assignTo, copyFrom);
+              }
+            })
             .collect(Collectors.toCollection(LinkedList::new));
 
-          finalStates.put(nextState.dfaStateId(), commands);
+          finalStates.put(nextState.dfaStateId(), finalCommands);
         }
 
         // Explore all transitions out of the NFA state in this row.
@@ -535,7 +594,11 @@ public class Tdfa implements DotGraph<Integer, SimpleImmutableEntry<CodeUnitTran
             codeUnit,
             k -> new SimpleImmutableEntry<>(
               new HashSet<Register>(),
-              new DfaState(dfaStateIdSupplier.getAsInt(), new LinkedList<>())
+              new DfaState(
+                dfaStateIdSupplier.getAsInt(),
+                new LinkedList<>(),
+                isAccepting
+              )
             )
           );
           final DfaState wipDfaState = wipTransition.getValue();
@@ -571,6 +634,24 @@ public class Tdfa implements DotGraph<Integer, SimpleImmutableEntry<CodeUnitTran
             wipSetToCurrentPos.addAll(transitionOperations);
           }
         }
+
+        /* In prefix mode, don't explore states with lower priority than the
+         * final state. those represent matches that should _end_ at the
+         * state.
+         *
+         * For example: with a pattern of `(a*|a*b*)` in non-prefix mode
+         * there would be transitions back to the final state over `b`. In
+         * prefix mode the `b` transition is lower priority than the
+         * accepting LHS so we should not keep visiting input after the last
+         * `a`. OTOH. if we had `(a*b*|a*)` the LHS is higher priority so we
+         * _would_ expect transitions over `b`.
+         *
+         * This is how in prefix mode greedy quantifiers look for more input
+         * while reluctant ones stop early.
+         */
+        if (prefixMode && row.nfaState == nfa.finalState) {
+          break;
+        }
       }
 
       // Build up the set of transitions from this DFA state
@@ -583,14 +664,14 @@ public class Tdfa implements DotGraph<Integer, SimpleImmutableEntry<CodeUnitTran
 
         // Look for a state into which the target state can be merged
         final var duplicateOptStateMapping = seenStates
-          .getOrDefault(targetDfaState.nfaStates(), Collections.emptyList())
+          .getOrDefault(targetDfaState.key(), Collections.emptyList())
           .stream()
           .flatMap((DfaState dfaState) -> {
             final var registerMapping = dfaState.isomorphicTo(targetDfaState);
-            if (registerMapping == null) {
+            if (registerMapping.isEmpty()) {
               return Stream.empty();
             } else {
-              return Stream.of(new SimpleImmutableEntry<>(dfaState, registerMapping));
+              return Stream.of(new SimpleImmutableEntry<>(dfaState, registerMapping.get()));
             }
           })
           .findFirst();
@@ -625,6 +706,11 @@ public class Tdfa implements DotGraph<Integer, SimpleImmutableEntry<CodeUnitTran
             )
             .collect(Collectors.toCollection(LinkedList::new));
 
+          // Prefix mode: for accepting DFA states, update group registers
+          if (finalCommands != null) {
+            commands.addAll(0, finalCommands);
+          }
+
           // Adjust the transition to point to the duplicated state
           transitionsFromThisDfaState.put(
             codeUnit,
@@ -638,6 +724,11 @@ public class Tdfa implements DotGraph<Integer, SimpleImmutableEntry<CodeUnitTran
             .<TagCommand>map(t -> new TagCommand.CurrentPosition(t))
             .collect(Collectors.toCollection(LinkedList::new));
 
+          // Prefix mode: for accepting DFA states, update group registers
+          if (finalCommands != null) {
+            commands.addAll(0, finalCommands);
+          }
+
           // Add the transition
           transitionsFromThisDfaState.put(
             codeUnit,
@@ -646,7 +737,7 @@ public class Tdfa implements DotGraph<Integer, SimpleImmutableEntry<CodeUnitTran
 
           // Record the new DFA state and push it onto the stack to visit
           seenStates
-            .computeIfAbsent(targetDfaState.nfaStates(), k -> new LinkedList<DfaState>())
+            .computeIfAbsent(targetDfaState.key(), k -> new LinkedList<DfaState>())
             .add(targetDfaState);
           toVisit.push(targetDfaState);
         }
@@ -659,7 +750,8 @@ public class Tdfa implements DotGraph<Integer, SimpleImmutableEntry<CodeUnitTran
       initialState,
       groupMarkers.size() / 2,
       trackedGroupMarkers,
-      nfa.fixedTags
+      nfa.fixedTags,
+      prefixMode
     );
   }
 
@@ -872,7 +964,8 @@ public class Tdfa implements DotGraph<Integer, SimpleImmutableEntry<CodeUnitTran
       newInitialState,
       updateGroupCount.applyAsInt(groupCount),
       cloneTrackedGroupMarkers.apply(trackedGroupMarkers),
-      cloneFixedTags.apply(fixedTags)
+      cloneFixedTags.apply(fixedTags),
+      prefixMode
     );
   }
 
@@ -1072,6 +1165,34 @@ public class Tdfa implements DotGraph<Integer, SimpleImmutableEntry<CodeUnitTran
     }
 
     return partition;
+  }
+
+  /**
+   * Traverse the DFA to find all states reachable when starting from any
+   * final state.
+   *
+   * This includes the accepting states themselves.
+   *
+   * @return states reachable from final states
+   */
+  public Set<Integer> reachableFromFinalState() {
+    final var reachable = new HashSet<Integer>();
+    final var toVisit = new Stack<Integer>();
+
+    reachable.addAll(finalStates.keySet());
+    toVisit.addAll(reachable);
+
+    while (!toVisit.isEmpty()) {
+      final var nextState = toVisit.pop();
+      for (final var transition : states.get(nextState).values()) {
+        final var targetState = transition.targetState();
+        if (reachable.add(targetState)) {
+          toVisit.push(targetState);
+        }
+      }
+    }
+
+    return reachable;
   }
 
   @Override

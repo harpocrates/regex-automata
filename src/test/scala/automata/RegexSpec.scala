@@ -25,9 +25,10 @@ class RegexSpec extends AnyFunSpec {
           .collect[JavaStringBuilder](() => new JavaStringBuilder(), _.appendCodePoint(_), _.append(_))
           .toString
 
-          it(if (testName.isEmpty) "<empty>" else testName) {
+        it(if (testName.isEmpty) "<empty>" else testName) {
           val matches: Boolean = p.checkMatch(input)
           val matched: MatchResult = p.captureMatch(input)
+          val matchedLookingAt: MatchResult = p.captureLookingAt(input)
 
           expectedOutput match {
             case None =>
@@ -37,6 +38,7 @@ class RegexSpec extends AnyFunSpec {
             case Some(groups) =>
               assert(matches, "checkMatch should successfully match")
               assert(matched != null, "captureMatch should return a non-null match")
+              assert(matchedLookingAt != null, "captureLookingAt should return a non-null match")
               assert(expectedGroupCount == matched.groupCount, "count of capture groups in pattern")
 
               val patchedGroups = (0, input.length, input) +: groups

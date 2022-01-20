@@ -17,6 +17,11 @@ import org.objectweb.asm.Opcodes;
  * compilation of the pattern may take longer, it may use more memory, and some
  * backtracking features are not supported.
  *
+ * TODO: make this more like the Java API (with a `Matcher` intermediate object
+ *       that carries capture groups as fields) and get rid of the checkMatch vs.
+ *       captureMatch distinction. Fold checkMatch into what happens when there
+ *       are no groups
+ *
  * @author Alec Theriault
  */
 public interface DfaPattern {
@@ -34,11 +39,15 @@ public interface DfaPattern {
   throws java.io.IOException, PatternSyntaxException, IllegalAccessException, NoSuchMethodException, InstantiationException, InvocationTargetException {
     final var nfa = Tnfa.parse(regex, true);
 
-    var captureDfa = Tdfa.fromTnfa(nfa);
+    var captureDfa = Tdfa.fromTnfa(nfa, false);
     while (captureDfa.simplifyTagCommands());
     captureDfa = captureDfa.minimized();
 
     final var checkDfa = captureDfa.minimizeWithoutTagCommands();
+
+    var lookingAtDfa = Tdfa.fromTnfa(nfa, true);
+    while (lookingAtDfa.simplifyTagCommands());
+    lookingAtDfa = lookingAtDfa.minimized();
 
     final String className = "automata/DfaPattern$Compiled";
     final boolean debugInfo = false;
@@ -48,6 +57,7 @@ public interface DfaPattern {
         regex,
         checkDfa,
         captureDfa,
+        lookingAtDfa,
         className,
         classFlags,
         debugInfo
@@ -119,6 +129,28 @@ public interface DfaPattern {
   public boolean checkMatch(CharSequence input, int startOffset, int endOffset);
 
   /**
+   * Match a prefix of the input string to the DFA pattern and extract capture
+   * groups
+   *
+   * @param input character sequence to match
+   * @param startOffset offset in the input where the pattern starts matching
+   * @param endOffset offset in the input where the pattern ends matching
+   * @return extracted capture groups, or `null` if the pattern didn't match
+   */
+  public ArrayMatchResult captureLookingAt(CharSequence input, int startOffset, int endOffset);
+
+  /**
+   * Match a prefix of the input string to the DFA pattern and extract capture
+   * groups
+   *
+   * @param input character sequence to match
+   * @return extracted capture groups, or `null` if the pattern didn't match
+   */
+  public default ArrayMatchResult captureLookingAt(CharSequence input) {
+    return captureLookingAt(input, 0, input.length());
+  }
+
+  /**
    * Returns initial regular expression from which the pattern was derived.
    *
    * @return source of the pattern
@@ -138,22 +170,27 @@ public interface DfaPattern {
 
     // Intermediate states
     public final Tnfa nfa;
-    public final Tdfa dfa;
+    public final Tdfa matchesDfa;
+    public final Tdfa lookingAtDfa;
 
     public String pattern() {
       return pattern;
     }
 
     public boolean checkMatch(CharSequence input, int startOffset, int endOffset) {
-      return dfa.checkSimulate(input, startOffset, endOffset, printDebugInfo);
+      return matchesDfa.checkSimulate(input, startOffset, endOffset, printDebugInfo);
     }
 
     public ArrayMatchResult captureMatch(CharSequence input, int startOffset, int endOffset) {
-      return dfa.captureSimulate(input, startOffset, endOffset, printDebugInfo);
+      return matchesDfa.captureSimulate(input, startOffset, endOffset, printDebugInfo);
+    }
+
+    public ArrayMatchResult captureLookingAt(CharSequence input, int startOffset, int endOffset) {
+      return lookingAtDfa.captureSimulate(input, startOffset, endOffset, printDebugInfo);
     }
 
     public int groupCount() {
-      return dfa.groupCount;
+      return matchesDfa.groupCount;
     }
 
     public InterpretableDfaPattern(String pattern, boolean printDebugInfo) throws PatternSyntaxException {
@@ -161,9 +198,13 @@ public interface DfaPattern {
       this.printDebugInfo = printDebugInfo;
       this.nfa = Tnfa.parse(this.pattern, true);
 
-      var dfa = Tdfa.fromTnfa(this.nfa);
-      while (dfa.simplifyTagCommands());
-      this.dfa = dfa.minimized();
+      var matchesDfa = Tdfa.fromTnfa(this.nfa, false);
+      while (matchesDfa.simplifyTagCommands());
+      this.matchesDfa = matchesDfa.minimized();
+
+      var lookingAtDfa = Tdfa.fromTnfa(this.nfa, true);
+      while (lookingAtDfa.simplifyTagCommands());
+      this.lookingAtDfa = lookingAtDfa.minimized();
     }
 
     public InterpretableDfaPattern(String pattern) throws PatternSyntaxException {

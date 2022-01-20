@@ -58,6 +58,11 @@ final record Method(
     MethodType.methodType(ArrayMatchResult.class, CharSequence.class, int.class, int.class),
     Opcodes.INVOKEINTERFACE
   );
+  public static final Method CAPTURELOOKINGAT_M = new Method(
+    "captureLookingAt",
+    MethodType.methodType(ArrayMatchResult.class, CharSequence.class, int.class, int.class),
+    Opcodes.INVOKEINTERFACE
+  );
   public static final Method CHECKMATCHSTATIC_M = new Method(
     "checkMatchStatic",
     MethodType.methodType(boolean.class, CharSequence.class, int.class, int.class),
@@ -65,6 +70,11 @@ final record Method(
   );
   public static final Method CAPTUREMATCHSTATIC_M = new Method(
     "captureMatchStatic",
+    MethodType.methodType(ArrayMatchResult.class, CharSequence.class, int.class, int.class),
+    Opcodes.INVOKESTATIC
+  );
+  public static final Method CAPTURELOOKINGATSTATIC_M = new Method(
+    "captureLookingAtStatic",
     MethodType.methodType(ArrayMatchResult.class, CharSequence.class, int.class, int.class),
     Opcodes.INVOKESTATIC
   );
@@ -94,8 +104,8 @@ final record Method(
     Opcodes.INVOKESTATIC
   );
   public static final Method CHARAT_M = new Method(
-    "charAt", 
-    MethodType.methodType(char.class, int.class), 
+    "charAt",
+    MethodType.methodType(char.class, int.class),
     Opcodes.INVOKEINTERFACE
   );
   public static final Method FILLINT_M = new Method(
