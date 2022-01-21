@@ -83,9 +83,28 @@ final public class Tnfa implements DotGraph<Integer, TnfaTransition> {
     this.fixedTags = fixedTags;
   }
 
-  public static Tnfa parse(String pattern, boolean wrappingGroup) throws PatternSyntaxException {
+  /**
+   * Parse an NFA from a regular expression pattern.
+   *
+   * If both the wrapping group and wildcard prefix options are enabled, the
+   * wrapping group starts _after_ the wildcard prefix.
+   *
+   * @param pattern regular expression to parse
+   * @param wrappingGroup add an implicit capture group around the expression
+   * @param wildcardPrefix accept any prefix before the expression
+   */
+  public static Tnfa parse(
+    String pattern,
+    boolean wrappingGroup,
+    boolean wildcardPrefix
+  ) throws PatternSyntaxException {
     final var builder = new Builder();
-    final var visited = RegexParser.parse(builder, pattern, wrappingGroup);
+    final var visited = RegexParser.parse(
+      builder,
+      pattern,
+      wrappingGroup,
+      wildcardPrefix
+    );
     return builder.constructNfa(visited);
   }
 

@@ -7,6 +7,8 @@ public interface TagCommand {
 
   public String dotLabel();
 
+  public String compactString();
+
   /**
    * Variable used by the command.
    *
@@ -35,6 +37,11 @@ public interface TagCommand {
     }
 
     @Override
+    public String compactString() {
+      return assignTo.compactString() + " <- " + copyFrom.compactString();
+    }
+
+    @Override
     public Optional<Register> usedVariable() {
       return Optional.of(copyFrom);
     }
@@ -48,7 +55,7 @@ public interface TagCommand {
     public void interpret(HashMap<Register, Integer> context, int currentPos, boolean printDebugInfo) {
       final int value = context.getOrDefault(copyFrom, -1);
       if (printDebugInfo) {
-        System.err.println("[TagCommand] " + assignTo + " <- " + copyFrom + " (currently " + value + ")");
+        System.err.println("[TagCommand] " + compactString() + ", which is currently " + value);
       }
       context.put(assignTo, value);
     }
@@ -59,6 +66,11 @@ public interface TagCommand {
     @Override
     public String dotLabel() {
       return String.format("%s←p", assignTo.dotLabel());
+    }
+
+    @Override
+    public String compactString() {
+      return assignTo.compactString() + " <- p";
     }
 
     @Override
@@ -74,7 +86,7 @@ public interface TagCommand {
     @Override
     public void interpret(HashMap<Register, Integer> context, int currentPos, boolean printDebugInfo) {
       if (printDebugInfo) {
-        System.err.println("[TagCommand] " + assignTo + " <- pos (currently " + currentPos + ")");
+        System.err.println("[TagCommand] " + compactString() + ", which is currently " + currentPos);
       }
       context.put(assignTo, currentPos);
     }

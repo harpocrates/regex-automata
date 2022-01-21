@@ -23,9 +23,10 @@ public final class CompiledDfa {
    * This bytecode emitted should run on Java 8 or higher.
    *
    * @param pattern initial regular expression pattern
-   * @param checkDfa DFA for just checking a full match
-   * @param captureDfa DFA for just capturing a full match
-   * @param lookingAtDfa DFA for just capturing a prefix match
+   * @param checkDfa DFA for checking a full match
+   * @param captureDfa DFA for capturing a full match
+   * @param lookingAtDfa DFA for capturing a prefix match
+   * @param findDfa DFA for capturing a find match
    * @param className name of the anonymous class to generate
    * @param classFlags class flags to set (visibility, etc.)
    * @param printDebugInfo generate code which prints debug info to STDERR
@@ -36,6 +37,7 @@ public final class CompiledDfa {
     Tdfa checkDfa,
     Tdfa captureDfa,
     Tdfa lookingAtDfa,
+    Tdfa findDfa,
     String className,
     int classFlags,
     boolean printDebugInfo
@@ -152,6 +154,30 @@ public final class CompiledDfa {
       mv.visitInsn(Opcodes.ISUB);
       mv.visitVarInsn(Opcodes.ILOAD, 3);
       Method.CAPTURELOOKINGATSTATIC_M.invokeMethod(mv, className);
+      mv.visitInsn(Opcodes.ARETURN);
+      mv.visitMaxs(0, 0);
+      mv.visitEnd();
+    }
+
+    // `captureFindStatic` static helper method
+    {
+      final var mv = Method.CAPTUREFINDSTATIC_M.newMethod(cw, Opcodes.ACC_PRIVATE);
+      mv.visitCode();
+      new TdfaMethodCodegen(mv, findDfa, true, printDebugInfo).visitDfa();
+      mv.visitMaxs(0, 0);
+      mv.visitEnd();
+    }
+
+    // `captureFind` method
+    {
+      final var mv = Method.CAPTUREFIND_M.newMethod(cw, Opcodes.ACC_PUBLIC);
+      mv.visitCode();
+      mv.visitVarInsn(Opcodes.ALOAD, 1);
+      mv.visitVarInsn(Opcodes.ILOAD, 2);
+      mv.visitInsn(Opcodes.ICONST_1);
+      mv.visitInsn(Opcodes.ISUB);
+      mv.visitVarInsn(Opcodes.ILOAD, 3);
+      Method.CAPTUREFINDSTATIC_M.invokeMethod(mv, className);
       mv.visitInsn(Opcodes.ARETURN);
       mv.visitMaxs(0, 0);
       mv.visitEnd();

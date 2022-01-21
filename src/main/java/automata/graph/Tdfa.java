@@ -138,7 +138,9 @@ public class Tdfa implements DotGraph<Integer, SimpleImmutableEntry<CodeUnitTran
         .findFirst();
       if (!matchingTransition.isPresent()) {
         if (prefixMode && finalStates.containsKey(currentState)) {
-          System.err.println("[TDFA] completing prefix run at " + currentState + "; no transition for " + codeUnit);
+          if (printDebugInfo) {
+            System.err.println("[TDFA] completing prefix run at " + currentState + "; no transition for " + codeUnit);
+          }
           break;
         }
         if (printDebugInfo) {
@@ -226,7 +228,9 @@ public class Tdfa implements DotGraph<Integer, SimpleImmutableEntry<CodeUnitTran
         .findFirst();
       if (!matchingTransition.isPresent()) {
         if (prefixMode && finalStates.containsKey(currentState)) {
-          System.err.println("[TDFA] completing prefix run at " + currentState + "; no transition for " + codeUnit);
+          if (printDebugInfo) {
+            System.err.println("[TDFA] completing prefix run at " + currentState + "; no transition for " + codeUnit);
+          }
           break;
         }
         if (printDebugInfo) {

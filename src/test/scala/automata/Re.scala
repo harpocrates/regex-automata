@@ -198,5 +198,5 @@ object Re extends RegexVisitor[Re, CharClass] {
   override def visitBuiltinClass(cls: JBuiltinClass) =
     Re.BuiltinClass(cls)
 
-  def parse(src: String): Re = RegexParser.parse(Re, src, false)
+  def parse(src: String): Re = RegexParser.parse(Re, src, false, false)
 }

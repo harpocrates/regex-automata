@@ -652,6 +652,14 @@ class TdfaMethodCodegen extends BytecodeHelpers {
         throw new IllegalArgumentException("Reading unknown register type " + copyFrom);
       }
 
+      // Print out the command
+      if (printDebugInfo) {
+        final var message = "[TDFA] " + copy.compactString() + ", which is currently ";
+        visitPrintErrConstantString(message, false);
+        mv.visitInsn(Opcodes.DUP);
+        visitPrintErrInt();
+      }
+
       // Assign to `assignTo`
       if (assignTo instanceof Register.Temporary temp) {
         mv.visitVarInsn(Opcodes.ISTORE, temporaryRegisterLocals.get(temp));
@@ -659,14 +667,6 @@ class TdfaMethodCodegen extends BytecodeHelpers {
         mv.visitInsn(Opcodes.IASTORE);
       } else {
         throw new IllegalArgumentException("Writing unknown register type " + assignTo);
-      }
-
-      // Print out the command
-      if (printDebugInfo) {
-        final var message = "[TDFA] copy " + copy.assignTo() + " <- " + copy.copyFrom() + " or ";
-        visitPrintErrConstantString(message, false);
-        mv.visitVarInsn(Opcodes.ILOAD, temporaryRegisterLocals.get(copy.copyFrom()));
-        visitPrintErrInt();
       }
     } else if (command instanceof TagCommand.CurrentPosition currentPos) {
       final Register assignTo = currentPos.assignTo();
@@ -686,7 +686,7 @@ class TdfaMethodCodegen extends BytecodeHelpers {
 
       // Print out the command
       if (printDebugInfo) {
-        final var message = "[TDFA] set current pos " + currentPos.assignTo() + " <- ";
+        final var message = "[TDFA] " + currentPos.compactString() + ", which is currently ";
         visitPrintErrConstantString(message, false);
         mv.visitVarInsn(Opcodes.ILOAD, offsetLocal);
         visitPrintErrInt();

@@ -6,6 +6,7 @@ import automata.graph.Tnfa;
 import java.lang.invoke.MethodHandles;
 import java.lang.reflect.InvocationTargetException;
 import java.util.regex.PatternSyntaxException;
+import java.util.stream.Stream;
 import org.objectweb.asm.Opcodes;
 
 /**
@@ -37,17 +38,22 @@ public interface DfaPattern {
    */
   public static DfaPattern compile(String regex)
   throws java.io.IOException, PatternSyntaxException, IllegalAccessException, NoSuchMethodException, InstantiationException, InvocationTargetException {
-    final var nfa = Tnfa.parse(regex, true);
+    final Tnfa nfaWithoutWildcard = Tnfa.parse(regex, true, false);
+    final Tnfa nfaWithWildcard = Tnfa.parse(regex, true, true);
 
-    var captureDfa = Tdfa.fromTnfa(nfa, false);
+    var captureDfa = Tdfa.fromTnfa(nfaWithoutWildcard, false);
     while (captureDfa.simplifyTagCommands());
     captureDfa = captureDfa.minimized();
 
     final var checkDfa = captureDfa.minimizeWithoutTagCommands();
 
-    var lookingAtDfa = Tdfa.fromTnfa(nfa, true);
+    var lookingAtDfa = Tdfa.fromTnfa(nfaWithoutWildcard, true);
     while (lookingAtDfa.simplifyTagCommands());
     lookingAtDfa = lookingAtDfa.minimized();
+
+    var findDfa = Tdfa.fromTnfa(nfaWithWildcard, true);
+    while (findDfa.simplifyTagCommands());
+    findDfa = findDfa.minimized();
 
     final String className = "automata/DfaPattern$Compiled";
     final boolean debugInfo = false;
@@ -58,6 +64,7 @@ public interface DfaPattern {
         checkDfa,
         captureDfa,
         lookingAtDfa,
+        findDfa,
         className,
         classFlags,
         debugInfo
@@ -151,6 +158,37 @@ public interface DfaPattern {
   }
 
   /**
+   * Find the first instance of the DFA pattern inside the input and extract
+   * capture groups
+   *
+   * @param input character sequence to match
+   * @param startOffset offset in the input where the pattern starts matching
+   * @param endOffset offset in the input where the pattern ends matching
+   * @return extracted capture groups, or `null` if the pattern didn't match
+   */
+  public ArrayMatchResult captureFind(CharSequence input, int startOffset, int endOffset);
+
+  /**
+   * Find the first instance of the DFA pattern inside the input and extract
+   * capture groups
+   *
+   * @param input character sequence to match
+   * @return extracted capture groups, or `null` if the pattern didn't match
+   */
+  public default ArrayMatchResult captureFind(CharSequence input) {
+    return captureFind(input, 0, input.length());
+  }
+
+  public default Stream<ArrayMatchResult> results(CharSequence input) {
+    int endOffset = input.length();
+    return Stream.iterate(
+      captureFind(input, 0, endOffset),
+      result -> result != null,
+      result -> captureFind(input, result.end(), endOffset)
+    );
+  }
+
+  /**
    * Returns initial regular expression from which the pattern was derived.
    *
    * @return source of the pattern
@@ -169,9 +207,9 @@ public interface DfaPattern {
     private final boolean printDebugInfo;
 
     // Intermediate states
-    public final Tnfa nfa;
     public final Tdfa matchesDfa;
     public final Tdfa lookingAtDfa;
+    public final Tdfa findDfa;
 
     public String pattern() {
       return pattern;
@@ -189,6 +227,10 @@ public interface DfaPattern {
       return lookingAtDfa.captureSimulate(input, startOffset, endOffset, printDebugInfo);
     }
 
+    public ArrayMatchResult captureFind(CharSequence input, int startOffset, int endOffset) {
+      return findDfa.captureSimulate(input, startOffset, endOffset, printDebugInfo);
+    }
+
     public int groupCount() {
       return matchesDfa.groupCount;
     }
@@ -196,15 +238,21 @@ public interface DfaPattern {
     public InterpretableDfaPattern(String pattern, boolean printDebugInfo) throws PatternSyntaxException {
       this.pattern = pattern;
       this.printDebugInfo = printDebugInfo;
-      this.nfa = Tnfa.parse(this.pattern, true);
 
-      var matchesDfa = Tdfa.fromTnfa(this.nfa, false);
+      final Tnfa nfaWithoutWildcard = Tnfa.parse(this.pattern, true, false);
+      final Tnfa nfaWithWildcard = Tnfa.parse(this.pattern, true, true);
+
+      var matchesDfa = Tdfa.fromTnfa(nfaWithoutWildcard, false);
       while (matchesDfa.simplifyTagCommands());
       this.matchesDfa = matchesDfa.minimized();
 
-      var lookingAtDfa = Tdfa.fromTnfa(this.nfa, true);
+      var lookingAtDfa = Tdfa.fromTnfa(nfaWithoutWildcard, true);
       while (lookingAtDfa.simplifyTagCommands());
       this.lookingAtDfa = lookingAtDfa.minimized();
+
+      var findDfa = Tdfa.fromTnfa(nfaWithWildcard, true);
+      while (findDfa.simplifyTagCommands());
+      this.findDfa = findDfa.minimized();
     }
 
     public InterpretableDfaPattern(String pattern) throws PatternSyntaxException {

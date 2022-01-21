@@ -36,8 +36,8 @@ class PhoneNumbersBench {
   val testStrings: Array[String] = shouldMatch.map(_._1).toArray[String]
   val captureGroups: Array[Array[String]] = shouldMatch.map(_._2.toArray[String]).toArray[Array[String]]
 
-  val compiledJava = java.util.regex.Pattern.compile("^" + phoneRe + "$")
-  val compiledJavaNoGroups = java.util.regex.Pattern.compile("^" + phoneReNoCap + "$")
+  val compiledJava = java.util.regex.Pattern.compile(phoneRe)
+  val compiledJavaNoGroups = java.util.regex.Pattern.compile(phoneReNoCap)
   val compiledAutomata = DfaPattern.compile(phoneRe)
 
   @Benchmark

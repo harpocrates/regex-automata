@@ -37,21 +37,41 @@ public final class RegexParser<A, C> {
    * @param visitor regex visitor used to accept bottom-up parsing progress
    * @param input regular expression pattern
    * @param wrappingGroup is there an implicit outer group wrapping the regex
+   * @param wildcardPrefix accept any prefix (lazily) before the regex
    * @return parsed regular expression
    */
   public static<B, D> B parse(
     RegexVisitor<B, D> visitor,
     String input,
-    boolean wrappingGroup
+    boolean wrappingGroup,
+    boolean wildcardPrefix
   ) throws PatternSyntaxException {
     final var parser = new RegexParser<B, D>(visitor, input);
     if (wrappingGroup) {
       parser.groupCount++;
     }
 
+    // Wildcard prefix: [\x{0}-\x{10FFFF}]*?
+    B prefix = null;
+    if (wildcardPrefix) {
+      final D anyCodePoint = visitor.visitRange(
+        Character.MIN_CODE_POINT,
+        Character.MAX_CODE_POINT
+      );
+      prefix = visitor.visitKleene(visitor.visitCharacterClass(anyCodePoint), true);
+    }
+
+    // Parse the actual expression
     B parsed = parser.parseAlternation();
+
+    // Add a wrapping group
     if (wrappingGroup) {
       parsed = visitor.visitGroup(parsed, OptionalInt.of(0));
+    }
+
+    // Add the wildcard prefix
+    if (prefix != null) {
+      parsed = visitor.visitConcatenation(prefix, parsed);
     }
 
     if (parser.position < parser.length) {

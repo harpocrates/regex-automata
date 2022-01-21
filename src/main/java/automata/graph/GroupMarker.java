@@ -33,6 +33,11 @@ public record GroupMarker(
       .collect(Collectors.joining(""));
   }
 
+  @Override
+  public String compactString() {
+    return (isStart ? "S" : "E") + groupIndex;
+  }
+
   public int arrayOffset() {
     return isStart ? 2 * groupIndex : 2 * groupIndex + 1;
   }
