@@ -39,6 +39,7 @@ class PhoneNumbersBench {
   val compiledJava = java.util.regex.Pattern.compile(phoneRe)
   val compiledJavaNoGroups = java.util.regex.Pattern.compile(phoneReNoCap)
   val compiledAutomata = DfaPattern.compile(phoneRe)
+  val compiledAutomataNoGroups = DfaPattern.compile(phoneReNoCap)
 
   @Benchmark
   def javaRegexCheck(b: Blackhole): Unit = {
@@ -55,8 +56,8 @@ class PhoneNumbersBench {
   def automataRegexCheck(b: Blackhole): Unit = {
     var i = 0
     while (i < testStrings.length) {
-      val m = compiledAutomata.checkMatch(testStrings(i))
-      b.consume(m)
+      val m = compiledAutomataNoGroups.captureMatch(testStrings(i))
+      b.consume(m != null)
 
       i += 1
     }

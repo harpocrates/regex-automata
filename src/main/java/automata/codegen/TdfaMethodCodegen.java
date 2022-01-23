@@ -1,11 +1,13 @@
 package automata.codegen;
 
+import static java.util.AbstractMap.SimpleImmutableEntry;
+
 import automata.graph.Tdfa;
 import automata.graph.GroupMarker;
 import automata.graph.Register;
 import automata.graph.TagCommand;
 import automata.graph.CodeUnitTransition;
-import automata.graph.RelativeGroupLocation;
+import automata.graph.GroupMarkers;
 import automata.util.IntRange;
 import automata.util.IntRangeSet;
 import java.util.ArrayList;
@@ -41,12 +43,6 @@ class TdfaMethodCodegen extends BytecodeHelpers {
    * Tagged DFA for which code is generated.
    */
   private final Tdfa dfa;
-
-  /**
-   * Controls whether the generated method returns a {@code ArrayMatchResult}
-   * or a simple {@code boolean}.
-   */
-  private final boolean captureGroups;
 
   /**
    * If set, the generated method will include code that prints to "standard"
@@ -85,8 +81,6 @@ class TdfaMethodCodegen extends BytecodeHelpers {
   /**
    * Offset for local of type {@code int[]} corresponding to the group
    * variables being tracked.
-   *
-   * This is only a valid offset if {@link #captureGroups} is set.
    */
   private final int groupsLocal;
 
@@ -98,9 +92,6 @@ class TdfaMethodCodegen extends BytecodeHelpers {
 
   /**
    * Offsets for local variables associated with various temporary registers.
-   *
-   * If {@link #captureGroups} is not set, this will be empty. In either case,
-   * the map is unmodifiable.
    */
   private final Map<Register.Temporary, Integer> temporaryRegisterLocals;
 
@@ -122,15 +113,22 @@ class TdfaMethodCodegen extends BytecodeHelpers {
    */
   private final Label returnFailure;
 
+  /**
+   * Set of fixed classes still needing to be processed.
+   *
+   * Since some classes get handled at the beginning vs. end of the match and
+   * some classes could be anchored against either the beginning or end, it
+   * helps to maintain a set of fixed classes not yet processed.
+   */
+  private final HashSet<GroupMarkers.FixedClass> fixedClasses;
+
   public TdfaMethodCodegen(
     MethodVisitor mv,
     Tdfa dfa,
-    boolean captureGroups,
     boolean printDebugInfo
   ) {
     super(mv);
     this.dfa = dfa;
-    this.captureGroups = captureGroups;
     this.printDebugInfo = printDebugInfo;
 
     // Intialize all local offsets (incrementing offset works since all locals are single-width)
@@ -138,16 +136,14 @@ class TdfaMethodCodegen extends BytecodeHelpers {
     this.inputLocal = nextLocal++;
     this.offsetLocal = nextLocal++;
     this.maxOffsetLocal = nextLocal++;
-    this.groupsLocal = captureGroups ? nextLocal++ : -1;
+    this.groupsLocal = nextLocal++;
     this.charTempLocal = nextLocal++;
-    if (captureGroups) {
+    {
       final var tempRegisters = new HashMap<Register.Temporary, Integer>();
       for (final var register : dfa.registers()) {
         tempRegisters.put(register, nextLocal++);
       }
       this.temporaryRegisterLocals = Collections.unmodifiableMap(tempRegisters);
-    } else {
-      this.temporaryRegisterLocals = Collections.emptyMap();
     }
 
     // Initialize labels
@@ -158,6 +154,8 @@ class TdfaMethodCodegen extends BytecodeHelpers {
       .collect(Collectors.toUnmodifiableMap(Function.identity(), s -> new Label()));
     this.returnSuccess = new Label();
     this.returnFailure = new Label();
+
+    this.fixedClasses = new HashSet<>(dfa.groupMarkers.classes());
   }
 
 
@@ -166,7 +164,7 @@ class TdfaMethodCodegen extends BytecodeHelpers {
 
     // Track entry into DFA
     if (printDebugInfo) {
-      final var localVars = captureGroups ? " (temporaries " + temporaryRegisterLocals + ")" : "";
+      final var localVars = " (temporaries " + temporaryRegisterLocals + ")";
       visitPrintErrConstantString("[TDFA] starting run" + localVars + " on: ", false);
       mv.visitVarInsn(Opcodes.ALOAD, inputLocal);
       Method.TOSTRING_M.invokeMethod(mv, Method.OBJECT_CLASS_NAME);
@@ -190,8 +188,8 @@ class TdfaMethodCodegen extends BytecodeHelpers {
       mv.visitIincInsn(offsetLocal, 1);
       mv.visitVarInsn(Opcodes.ILOAD, offsetLocal);
       mv.visitVarInsn(Opcodes.ILOAD, maxOffsetLocal);
-      if (finalCommands == null || !captureGroups) {
-        mv.visitJumpInsn(Opcodes.IF_ICMPGE, (finalCommands == null) ? returnFailure : returnSuccess);
+      if (finalCommands == null) {
+        mv.visitJumpInsn(Opcodes.IF_ICMPGE, returnFailure);
       } else {
         final var notDone = new Label();
         mv.visitJumpInsn(Opcodes.IF_ICMPLT, notDone);
@@ -234,15 +232,74 @@ class TdfaMethodCodegen extends BytecodeHelpers {
   private void initializeLocals() {
 
     // Groups local variable
-    // TODO: consider tracking when `Arrays.fill(groups, -1)` is unnecessary
-    if (groupsLocal != -1) {
-      visitConstantInt(2 * dfa.groupCount);
-      mv.visitIntInsn(Opcodes.NEWARRAY, Opcodes.T_INT);
+    visitConstantInt(2 * dfa.groupCount());
+    mv.visitIntInsn(Opcodes.NEWARRAY, Opcodes.T_INT);
+
+    // Only fill the array with `-1` if at least one group marker class is avoidable
+    if (dfa.groupMarkers.classes().stream().anyMatch(c -> !c.unavoidable)) {
       mv.visitInsn(Opcodes.DUP);
       mv.visitInsn(Opcodes.ICONST_M1);
       Method.FILLINT_M.invokeMethod(mv, Method.ARRAYS_CLASS_NAME);
-      mv.visitVarInsn(Opcodes.ASTORE, groupsLocal);
     }
+
+    // Fill in group markers whose position is anchored on the start/end offsets
+    dfa.groupMarkers.startClass().ifPresent((GroupMarkers.FixedClass startClass) -> {
+      if (!fixedClasses.remove(startClass)) {
+        return;
+      }
+
+      final int distanceToStart = startClass.distanceToStart.getAsInt();
+      final var fixedToStart = new HashSet<>(startClass.memberDistances.entrySet());
+      fixedToStart.add(new SimpleImmutableEntry<>(startClass.representative, -distanceToStart));
+
+      for (var fixedGroup : fixedToStart) {
+        final GroupMarker forGroup = fixedGroup.getKey();
+
+        // Prepare for `iastore` assigning to the fixed group
+        mv.visitInsn(Opcodes.DUP);
+        visitConstantInt(forGroup.arrayOffset());
+
+        // Compute the offset
+        mv.visitIntInsn(Opcodes.ILOAD, offsetLocal);
+        final int increment = fixedGroup.getValue() + distanceToStart;
+        if (increment != 0) {
+          visitConstantInt(increment);
+          mv.visitInsn(Opcodes.IADD);
+        }
+
+        // Store the fixed group
+        mv.visitInsn(Opcodes.IASTORE);
+      }
+    });
+    dfa.groupMarkers.endClass().ifPresent((GroupMarkers.FixedClass endClass) -> {
+      if (dfa.prefixMode || !fixedClasses.remove(endClass)) {
+        return;
+      }
+
+      final int distanceToEnd = endClass.distanceToEnd.getAsInt();
+      final var fixedToEnd = new HashSet<>(endClass.memberDistances.entrySet());
+      fixedToEnd.add(new SimpleImmutableEntry<>(endClass.representative, distanceToEnd));
+
+      for (var fixedGroup : fixedToEnd) {
+        final GroupMarker forGroup = fixedGroup.getKey();
+
+        // Prepare for `iastore` assigning to the fixed group
+        mv.visitInsn(Opcodes.DUP);
+        visitConstantInt(forGroup.arrayOffset());
+
+        // Compute the offset
+        mv.visitIntInsn(Opcodes.ILOAD, maxOffsetLocal);
+        final int increment = fixedGroup.getValue() + distanceToEnd;
+        if (increment != 0) {
+          visitConstantInt(increment);
+          mv.visitInsn(Opcodes.IADD);
+        }
+
+        // Store the fixed group
+        mv.visitInsn(Opcodes.IASTORE);
+      }
+    });
+    mv.visitVarInsn(Opcodes.ASTORE, groupsLocal);
 
     // Temporary `char` variable
     mv.visitInsn(Opcodes.ICONST_0);
@@ -254,23 +311,28 @@ class TdfaMethodCodegen extends BytecodeHelpers {
       mv.visitInsn(Opcodes.ICONST_M1);
       mv.visitVarInsn(Opcodes.ISTORE, temporaryRegisterLocal);
     }
+
+    // Decrement offset
+    mv.visitIincInsn(offsetLocal, -1);
   }
 
   /**
    * Emit code for the {@link #returnSuccess} block.
+   *
+   * This is nominally about preparing the match object, but most of the work
+   * is filling in untracked group markers that are at fixed positions from
+   * group markers that _are_ tracked.
    */
   private void visitReturnSuccess() {
     mv.visitLabel(returnSuccess);
 
-    /* Fill in fixed group marker tags. Recall: these are tags that we
-     * statically determined are always at a fixed distance from another tag,
-     * so we can skip any commands for these and fill in the tag only at the
-     * end.
-     */
-    if (captureGroups) {
-      for (final var fixedGroup : dfa.fixedTags.entrySet()) {
+    // Fill in group markers whose position is anchored on remaining classes
+    for (final var fixedClass : fixedClasses) {
+
+      final GroupMarker trackedGroup = fixedClass.representative;
+      for (var fixedGroup : fixedClass.memberDistances.entrySet()) {
         final GroupMarker forGroup = fixedGroup.getKey();
-        final RelativeGroupLocation location = fixedGroup.getValue();
+        final int distance = fixedGroup.getValue();
 
         // Prepare for `iastore` assigning to the fixed group
         mv.visitIntInsn(Opcodes.ALOAD, groupsLocal);
@@ -278,60 +340,53 @@ class TdfaMethodCodegen extends BytecodeHelpers {
 
         // Get the relative value
         mv.visitIntInsn(Opcodes.ALOAD, groupsLocal);
-        visitConstantInt(location.relativeTo().arrayOffset());
+        visitConstantInt(trackedGroup.arrayOffset());
         mv.visitInsn(Opcodes.IALOAD);
 
         // Only if the distance != 0 do we need to decrement
-        if (location.distance() != 0) {
+        if (distance != 0) {
 
           // If the group is not unavoidable, we must only decrement if != -1
-          if (!location.unavoidable()) {
+          if (!fixedClass.unavoidable) {
             final var afterDecrement = new Label();
             mv.visitInsn(Opcodes.DUP);
             mv.visitJumpInsn(Opcodes.IFLT, afterDecrement);
-            visitConstantInt(location.distance());
-            mv.visitInsn(Opcodes.ISUB);
+            visitConstantInt(distance);
+            mv.visitInsn(Opcodes.IADD);
             mv.visitLabel(afterDecrement);
           } else {
-            visitConstantInt(location.distance());
-            mv.visitInsn(Opcodes.ISUB);
+            visitConstantInt(distance);
+            mv.visitInsn(Opcodes.IADD);
           }
         }
 
+        // Store the fixed group
         mv.visitInsn(Opcodes.IASTORE);
       }
     }
+    fixedClasses.clear();
 
     // Print out the final output
     if (printDebugInfo) {
       visitPrintErrConstantString("[TDFA] exiting run (successful): ", false);
-      if (captureGroups) {
-        mv.visitIntInsn(Opcodes.ALOAD, groupsLocal);
-        Method.INTARRTOSTRING_M.invokeMethod(mv, Method.ARRAYS_CLASS_NAME);
-        visitPrintErrString();
-      } else {
-        visitPrintErrConstantString("1", true);
-      }
+      mv.visitIntInsn(Opcodes.ALOAD, groupsLocal);
+      Method.INTARRTOSTRING_M.invokeMethod(mv, Method.ARRAYS_CLASS_NAME);
+      visitPrintErrString();
     }
 
     // Construct and return the final match result
-    if (captureGroups) {
-      mv.visitTypeInsn(Opcodes.NEW, Method.ARRAYMATCHRESULT_CLASS_NAME);
-      mv.visitInsn(Opcodes.DUP);
-      mv.visitVarInsn(Opcodes.ALOAD, inputLocal);
-      mv.visitVarInsn(Opcodes.ALOAD, groupsLocal);
-      mv.visitMethodInsn(
-        Opcodes.INVOKESPECIAL,
-        Method.ARRAYMATCHRESULT_CLASS_NAME,
-        "<init>",
-        "(Ljava/lang/CharSequence;[I)V",
-        false
-      );
-      mv.visitInsn(Opcodes.ARETURN);
-    } else {
-      mv.visitInsn(Opcodes.ICONST_1);
-      mv.visitInsn(Opcodes.IRETURN);
-    }
+    mv.visitTypeInsn(Opcodes.NEW, Method.ARRAYMATCHRESULT_CLASS_NAME);
+    mv.visitInsn(Opcodes.DUP);
+    mv.visitVarInsn(Opcodes.ALOAD, inputLocal);
+    mv.visitVarInsn(Opcodes.ALOAD, groupsLocal);
+    mv.visitMethodInsn(
+      Opcodes.INVOKESPECIAL,
+      Method.ARRAYMATCHRESULT_CLASS_NAME,
+      "<init>",
+      "(Ljava/lang/CharSequence;[I)V",
+      false
+    );
+    mv.visitInsn(Opcodes.ARETURN);
   }
 
   /**
@@ -342,18 +397,12 @@ class TdfaMethodCodegen extends BytecodeHelpers {
 
     // Print out the final output
     if (printDebugInfo) {
-      final var returned = captureGroups ? "null" : "0";
-      visitPrintErrConstantString("[TDFA] exiting run (unsuccessful): " + returned, true);
+      visitPrintErrConstantString("[TDFA] exiting run (unsuccessful): null", true);
     }
 
     // Construct and return the final match (non-)result
-    if (captureGroups) {
-      mv.visitInsn(Opcodes.ACONST_NULL);
-      mv.visitInsn(Opcodes.ARETURN);
-    } else {
-      mv.visitInsn(Opcodes.ICONST_0);
-      mv.visitInsn(Opcodes.IRETURN);
-    }
+    mv.visitInsn(Opcodes.ACONST_NULL);
+    mv.visitInsn(Opcodes.ARETURN);
   }
 
   /**
@@ -395,16 +444,14 @@ class TdfaMethodCodegen extends BytecodeHelpers {
   ) {
 
     // Commands that occur for _all_ transitions (hoist these to before branching)
-    final Set<TagCommand> sharedCommands = captureGroups
-      ? Stream
-          .<List<TagCommand>>concat(
-            transitionsMap.values().stream().map(Tdfa.TaggedTransition::commands),
-            finalAcceptingCommandsOpt.stream()
-          )
-          .<Set<TagCommand>>map(HashSet::new)
-          .reduce((s1, s2) -> { s1.retainAll(s2); return s1; })
-          .orElse(Collections.emptySet())
-      : Collections.emptySet();
+    final Set<TagCommand> sharedCommands = Stream
+      .<List<TagCommand>>concat(
+        transitionsMap.values().stream().map(Tdfa.TaggedTransition::commands),
+        finalAcceptingCommandsOpt.stream()
+      )
+      .<Set<TagCommand>>map(HashSet::new)
+      .reduce((s1, s2) -> { s1.retainAll(s2); return s1; })
+      .orElse(Collections.emptySet());
     final var filteredFinalAcceptingCommandsOpt = finalAcceptingCommandsOpt
       .map(finalCommands ->
         finalCommands
@@ -432,14 +479,12 @@ class TdfaMethodCodegen extends BytecodeHelpers {
         Collectors.groupingBy(
           (Map.Entry<CodeUnitTransition, Tdfa.TaggedTransition> entry) -> {
             final var lbl = stateLabels.get(entry.getValue().targetState());
-            final List<TagCommand> commands = captureGroups
-              ? entry
-                .getValue()
-                .commands()
-                .stream()
-                .filter(command -> !sharedCommands.contains(command))
-                .collect(Collectors.toUnmodifiableList())
-              : Collections.emptyList();
+            final List<TagCommand> commands = entry
+              .getValue()
+              .commands()
+              .stream()
+              .filter(command -> !sharedCommands.contains(command))
+              .collect(Collectors.toUnmodifiableList());
             return new TargetLabel(lbl, commands);
           },
           Collectors.reducing(

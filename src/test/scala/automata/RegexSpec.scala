@@ -26,17 +26,14 @@ class RegexSpec extends AnyFunSpec {
           .toString
 
         it(if (testName.isEmpty) "<empty>" else testName) {
-          val matches: Boolean = p.checkMatch(input)
           val matched: MatchResult = p.captureMatch(input)
           val matchedLookingAt: MatchResult = p.captureLookingAt(input)
 
           expectedOutput match {
             case None =>
-              assert(!matches, "checkMatch should fail to match")
               assert(matched == null, "captureMatch should return a null match")
 
             case Some(groups) =>
-              assert(matches, "checkMatch should successfully match")
               assert(matched != null, "captureMatch should return a non-null match")
               assert(matchedLookingAt != null, "captureLookingAt should return a non-null match")
               assert(expectedGroupCount == matched.groupCount, "count of capture groups in pattern")

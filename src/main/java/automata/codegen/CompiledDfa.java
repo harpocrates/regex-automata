@@ -18,12 +18,11 @@ public final class CompiledDfa {
 
   /**
    * Code generator for making a subclass of {@code DfaPattern} which has code
-   * specialized for a single tagged DFA pattern.
+   * specialized for matching, looking, and finding a single tagged DFA pattern.
    *
    * This bytecode emitted should run on Java 8 or higher.
    *
    * @param pattern initial regular expression pattern
-   * @param checkDfa DFA for checking a full match
    * @param captureDfa DFA for capturing a full match
    * @param lookingAtDfa DFA for capturing a prefix match
    * @param findDfa DFA for capturing a find match
@@ -34,7 +33,6 @@ public final class CompiledDfa {
    */
   public static final ClassWriter generateDfaPatternSubclass(
     String pattern,
-    Tdfa checkDfa,
     Tdfa captureDfa,
     Tdfa lookingAtDfa,
     Tdfa findDfa,
@@ -81,31 +79,7 @@ public final class CompiledDfa {
     {
       final var mv = Method.GROUPCOUNT_M.newMethod(cw, Opcodes.ACC_PUBLIC);
       mv.visitCode();
-      mv.visitLdcInsn(captureDfa.groupCount);
-      mv.visitInsn(Opcodes.IRETURN);
-      mv.visitMaxs(0, 0);
-      mv.visitEnd();
-    }
-
-    // `checkMatchStatic` static helper method
-    {
-      final var mv = Method.CHECKMATCHSTATIC_M.newMethod(cw, Opcodes.ACC_PRIVATE);
-      mv.visitCode();
-      new TdfaMethodCodegen(mv, checkDfa, false, printDebugInfo).visitDfa();
-      mv.visitMaxs(0, 0);
-      mv.visitEnd();
-    }
-
-    // `checkMatch` method (just calls out to `checkMatchStatic`)
-    {
-      final var mv = Method.CHECKMATCH_M.newMethod(cw, Opcodes.ACC_PUBLIC);
-      mv.visitCode();
-      mv.visitVarInsn(Opcodes.ALOAD, 1);
-      mv.visitVarInsn(Opcodes.ILOAD, 2);
-      mv.visitInsn(Opcodes.ICONST_1);
-      mv.visitInsn(Opcodes.ISUB);
-      mv.visitVarInsn(Opcodes.ILOAD, 3);
-      Method.CHECKMATCHSTATIC_M.invokeMethod(mv, className);
+      mv.visitLdcInsn(captureDfa.groupCount());
       mv.visitInsn(Opcodes.IRETURN);
       mv.visitMaxs(0, 0);
       mv.visitEnd();
@@ -115,7 +89,7 @@ public final class CompiledDfa {
     {
       final var mv = Method.CAPTUREMATCHSTATIC_M.newMethod(cw, Opcodes.ACC_PRIVATE);
       mv.visitCode();
-      new TdfaMethodCodegen(mv, captureDfa, true, printDebugInfo).visitDfa();
+      new TdfaMethodCodegen(mv, captureDfa, printDebugInfo).visitDfa();
       mv.visitMaxs(0, 0);
       mv.visitEnd();
     }
@@ -126,8 +100,6 @@ public final class CompiledDfa {
       mv.visitCode();
       mv.visitVarInsn(Opcodes.ALOAD, 1);
       mv.visitVarInsn(Opcodes.ILOAD, 2);
-      mv.visitInsn(Opcodes.ICONST_1);
-      mv.visitInsn(Opcodes.ISUB);
       mv.visitVarInsn(Opcodes.ILOAD, 3);
       Method.CAPTUREMATCHSTATIC_M.invokeMethod(mv, className);
       mv.visitInsn(Opcodes.ARETURN);
@@ -139,7 +111,7 @@ public final class CompiledDfa {
     {
       final var mv = Method.CAPTURELOOKINGATSTATIC_M.newMethod(cw, Opcodes.ACC_PRIVATE);
       mv.visitCode();
-      new TdfaMethodCodegen(mv, lookingAtDfa, true, printDebugInfo).visitDfa();
+      new TdfaMethodCodegen(mv, lookingAtDfa, printDebugInfo).visitDfa();
       mv.visitMaxs(0, 0);
       mv.visitEnd();
     }
@@ -150,8 +122,6 @@ public final class CompiledDfa {
       mv.visitCode();
       mv.visitVarInsn(Opcodes.ALOAD, 1);
       mv.visitVarInsn(Opcodes.ILOAD, 2);
-      mv.visitInsn(Opcodes.ICONST_1);
-      mv.visitInsn(Opcodes.ISUB);
       mv.visitVarInsn(Opcodes.ILOAD, 3);
       Method.CAPTURELOOKINGATSTATIC_M.invokeMethod(mv, className);
       mv.visitInsn(Opcodes.ARETURN);
@@ -163,7 +133,7 @@ public final class CompiledDfa {
     {
       final var mv = Method.CAPTUREFINDSTATIC_M.newMethod(cw, Opcodes.ACC_PRIVATE);
       mv.visitCode();
-      new TdfaMethodCodegen(mv, findDfa, true, printDebugInfo).visitDfa();
+      new TdfaMethodCodegen(mv, findDfa, printDebugInfo).visitDfa();
       mv.visitMaxs(0, 0);
       mv.visitEnd();
     }
@@ -174,8 +144,6 @@ public final class CompiledDfa {
       mv.visitCode();
       mv.visitVarInsn(Opcodes.ALOAD, 1);
       mv.visitVarInsn(Opcodes.ILOAD, 2);
-      mv.visitInsn(Opcodes.ICONST_1);
-      mv.visitInsn(Opcodes.ISUB);
       mv.visitVarInsn(Opcodes.ILOAD, 3);
       Method.CAPTUREFINDSTATIC_M.invokeMethod(mv, className);
       mv.visitInsn(Opcodes.ARETURN);

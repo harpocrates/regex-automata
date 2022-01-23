@@ -48,11 +48,6 @@ final record Method(
     MethodType.methodType(int.class),
     Opcodes.INVOKEINTERFACE
   );
-  public static final Method CHECKMATCH_M = new Method(
-    "checkMatch",
-    MethodType.methodType(boolean.class, CharSequence.class, int.class, int.class),
-    Opcodes.INVOKEINTERFACE
-  );
   public static final Method CAPTUREMATCH_M = new Method(
     "captureMatch",
     MethodType.methodType(ArrayMatchResult.class, CharSequence.class, int.class, int.class),
@@ -67,11 +62,6 @@ final record Method(
     "captureFind",
     MethodType.methodType(ArrayMatchResult.class, CharSequence.class, int.class, int.class),
     Opcodes.INVOKEINTERFACE
-  );
-  public static final Method CHECKMATCHSTATIC_M = new Method(
-    "checkMatchStatic",
-    MethodType.methodType(boolean.class, CharSequence.class, int.class, int.class),
-    Opcodes.INVOKESTATIC
   );
   public static final Method CAPTUREMATCHSTATIC_M = new Method(
     "captureMatchStatic",

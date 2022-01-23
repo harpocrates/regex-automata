@@ -59,13 +59,15 @@ public abstract class RegexNfaBuilder<Q>
    *
    * @param state state to add
    * @param marker group marker
+   * @param unavoidable is the group unavoidable during matching?
    * @param relativeLocation fixed position relative to another marker
    * @param to state at the other end of the group transition
    */
   abstract void addGroupState(
     Q state,
     GroupMarker marker,
-    Optional<RelativeGroupLocation> relativeLocation,
+    boolean unavoidable,
+    Optional<GroupLocation> relativeLocation,
     Q to
   );
 
@@ -189,7 +191,7 @@ public abstract class RegexNfaBuilder<Q>
         .fixedGroup()
         .flatMap(loc -> classSize.map(loc::addDistance));
 
-      return new NfaState<Q>(start, toState.unavoidable(), fixedGroup);
+      return new NfaState<Q>(start, toState.insideRepetition(), toState.unavoidable(), fixedGroup);
     };
   }
 
@@ -208,12 +210,12 @@ public abstract class RegexNfaBuilder<Q>
     UnaryOperator<NfaState<Q>> rhs
   ) {
     return (NfaState<Q> to) -> {
-      final NfaState<Q> toNoLoc = new NfaState<Q>(to.state(), false, Optional.empty());
+      final NfaState<Q> toNoLoc = new NfaState<Q>(to.state(), to.insideRepetition(), false, Optional.empty());
       final NfaState<Q> lhsFrom = lhs.apply(toNoLoc);
       final NfaState<Q> rhsFrom = rhs.apply(toNoLoc);
       final Q from = freshState();
       addPlusMinusState(from, lhsFrom.state(), rhsFrom.state());
-      return new NfaState<Q>(from, to.unavoidable(), Optional.empty());
+      return new NfaState<Q>(from, to.insideRepetition(), to.unavoidable(), Optional.empty());
     };
   }
 
@@ -225,7 +227,7 @@ public abstract class RegexNfaBuilder<Q>
       final Q lhsTo = freshState();
       final Q from = freshState();
       final Q lhsFrom = lhs
-        .apply(new NfaState<Q>(lhsTo, false, Optional.empty()))
+        .apply(new NfaState<Q>(lhsTo, to.insideRepetition(), false, Optional.empty()))
         .state();
       if (isLazy) {
         addPlusMinusState(lhsTo, to.state(), lhsFrom);
@@ -234,7 +236,7 @@ public abstract class RegexNfaBuilder<Q>
         addPlusMinusState(lhsTo, lhsFrom, to.state());
         addPlusMinusState(from, lhsFrom, to.state());
       }
-      return new NfaState<Q>(from, to.unavoidable(), Optional.empty());
+      return new NfaState<Q>(from, to.insideRepetition(), to.unavoidable(), Optional.empty());
     };
   }
 
@@ -245,14 +247,14 @@ public abstract class RegexNfaBuilder<Q>
     return (NfaState<Q> to) -> {
       final Q from = freshState();
       final Q lhsFrom = lhs
-        .apply(new NfaState<Q>(to.state(), false, Optional.empty()))
+        .apply(new NfaState<Q>(to.state(), to.insideRepetition(), false, Optional.empty()))
         .state();
       if (isLazy) {
         addPlusMinusState(from, to.state(), lhsFrom);
       } else {
         addPlusMinusState(from, lhsFrom, to.state());
       }
-      return new NfaState<Q>(from, to.unavoidable(), Optional.empty());
+      return new NfaState<Q>(from, to.insideRepetition(), to.unavoidable(), Optional.empty());
     };
   }
 
@@ -263,14 +265,14 @@ public abstract class RegexNfaBuilder<Q>
     return (NfaState<Q> to) -> {
       final Q lhsTo = freshState();
       final Q lhsFrom = lhs
-        .apply(new NfaState<Q>(lhsTo, to.unavoidable(), Optional.empty()))
+        .apply(new NfaState<Q>(lhsTo, to.insideRepetition(), to.unavoidable(), Optional.empty()))
         .state();
       if (isLazy) {
         addPlusMinusState(lhsTo, to.state(), lhsFrom);
       } else {
         addPlusMinusState(lhsTo, lhsFrom, to.state());
       }
-      return new NfaState<Q>(lhsFrom, to.unavoidable(), Optional.empty());
+      return new NfaState<Q>(lhsFrom, to.insideRepetition(), to.unavoidable(), Optional.empty());
     };
   }
 
@@ -281,12 +283,14 @@ public abstract class RegexNfaBuilder<Q>
     boolean isLazy
   ) {
     return (NfaState<Q> to) -> {
+      final boolean insideRepetition = to.insideRepetition();
+
       // `atMost` portion - this is either a fixed repetition or a kleene star
       if (atMost.isPresent()) {
         final int atMostInt = atMost.getAsInt();
         for (int i = atLeast; i < atMostInt; i++) {
           final Q from = lhs
-            .apply(new NfaState<Q>(to.state(), false, Optional.empty()))
+            .apply(new NfaState<Q>(to.state(), to.insideRepetition(), false, Optional.empty()))
             .state();
           final Q fork = freshState();
           if (isLazy) {
@@ -294,18 +298,18 @@ public abstract class RegexNfaBuilder<Q>
           } else {
             addPlusMinusState(fork, from, to.state());
           }
-          to = new NfaState<Q>(fork, to.unavoidable(), Optional.empty());
+          to = new NfaState<Q>(fork, true, to.unavoidable(), Optional.empty());
         }
       } else {
-        to = visitKleene(lhs, isLazy).apply(to);
+        to = visitKleene(lhs, isLazy).apply(to).withRepetition(true);
       }
 
       // `atLeast` portion
       for (int i = 0; i < atLeast; i++) {
-        to = lhs.apply(to);
+        to = lhs.apply(to).withRepetition(true);
       }
 
-      return to;
+      return to.withRepetition(insideRepetition);
     };
   }
 
@@ -319,22 +323,22 @@ public abstract class RegexNfaBuilder<Q>
       final var start = GroupMarker.start(idx);
 
       return (NfaState<Q> to) -> {
+        if (to.insideRepetition()) {
+          return arg.apply(to);
+        }
+
         final Q argTo = freshState();
         final Q from = freshState();
         final boolean unavoidable = to.unavoidable();
 
-        final var toGroup = to
-          .fixedGroup()
-          .orElseGet(() -> new RelativeGroupLocation(end, unavoidable, 0));
+        final var toGroup = new GroupLocation.RelativeToGroup(end, 0);
         final NfaState<Q> argFrom = arg
-          .apply(new NfaState<Q>(argTo, unavoidable, Optional.of(toGroup)));
-        final var fromGroup = argFrom
-          .fixedGroup()
-          .orElseGet(() -> new RelativeGroupLocation(start, unavoidable, 0));
+          .apply(new NfaState<Q>(argTo, false, unavoidable, Optional.of(toGroup)));
+        final var fromGroup = new GroupLocation.RelativeToGroup(start, 0);
 
-        addGroupState(argTo, end, to.fixedGroup(), to.state());
-        addGroupState(from, start, argFrom.fixedGroup(), argFrom.state());
-        return new NfaState<Q>(from, unavoidable, Optional.of(fromGroup));
+        addGroupState(argTo, end, unavoidable, to.fixedGroup(), to.state());
+        addGroupState(from, start, unavoidable, argFrom.fixedGroup(), argFrom.state());
+        return new NfaState<Q>(from, false, unavoidable, Optional.of(fromGroup));
       };
     } else {
       return arg;
@@ -345,7 +349,7 @@ public abstract class RegexNfaBuilder<Q>
     return (NfaState<Q> to) -> {
       final Q from = freshState();
       addBoundaryState(from, boundary, to.state());
-      return new NfaState<Q>(from, to.unavoidable(), to.fixedGroup());
+      return new NfaState<Q>(from, to.insideRepetition(), to.unavoidable(), to.fixedGroup());
     };
   }
 }

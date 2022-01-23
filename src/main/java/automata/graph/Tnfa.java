@@ -67,20 +67,22 @@ final public class Tnfa implements DotGraph<Integer, TnfaTransition> {
   public final int finalState;
 
   /**
-   * Group markers whose position is fixed relative to other group markers.
+   * Group markers in the NFA.
+   *
+   * This manages tracking equivalence classes of group markers.
    */
-  public final Map<GroupMarker, RelativeGroupLocation> fixedTags;
+  public final GroupMarkers groupMarkers;
 
   private Tnfa(
     List<Map<TnfaTransition, Integer>> states,
     int initialState,
     int finalState,
-    Map<GroupMarker, RelativeGroupLocation> fixedTags
+    GroupMarkers groupMarkers
   ) {
     this.states = states;
     this.initialState = initialState;
     this.finalState = finalState;
-    this.fixedTags = fixedTags;
+    this.groupMarkers = groupMarkers;
   }
 
   /**
@@ -115,7 +117,7 @@ final public class Tnfa implements DotGraph<Integer, TnfaTransition> {
     private boolean used = false;
     private int lastState = 0;
     private final LinkedList<BufferedTransition> transitions = new LinkedList<>();
-    private final Map<GroupMarker, RelativeGroupLocation> fixedTags = new HashMap<>();
+    private final GroupMarkers groupMarkers = new GroupMarkers();
 
     @Override
     public Integer freshState() {
@@ -134,9 +136,21 @@ final public class Tnfa implements DotGraph<Integer, TnfaTransition> {
     }
 
     @Override
-    public void addGroupState(Integer from, GroupMarker marker, Optional<RelativeGroupLocation> fixedTag, Integer to) {
+    public void addGroupState(
+      Integer from,
+      GroupMarker marker,
+      boolean unavoidable,
+      Optional<GroupLocation> fixedTag,
+      Integer to
+    ) {
       if (fixedTag.isPresent()) {
-        fixedTags.put(marker, fixedTag.get());
+        if (fixedTag.get() instanceof GroupLocation.Absolute a) {
+          groupMarkers.addAbsoluteFixedGroup(marker, a.distance(), a.relativeToStart());
+        } else if (fixedTag.get() instanceof GroupLocation.RelativeToGroup r) {
+          groupMarkers.addRelativeFixedGroup(marker, r.distance(), unavoidable, r.relativeTo());
+        }
+      } else {
+        groupMarkers.addGroup(marker, unavoidable);
       }
       transitions.addLast(new BufferedTransition(from, marker, to));
     }
@@ -163,10 +177,22 @@ final public class Tnfa implements DotGraph<Integer, TnfaTransition> {
 
       // "Run" the visitor output, populating `transitions` as a side-effect
       final int finalState = freshState();
-      final int initialState = visitorOutput.apply(new NfaState<>(finalState, true, Optional.empty())).state();
+      final var finalNfaState = new NfaState<Integer>(
+        finalState,
+        false,
+        true,
+        Optional.of(new GroupLocation.Absolute(false, 0))
+      );
+      final var initialNfaState = visitorOutput.apply(finalNfaState);
+      final int initialState = initialNfaState.state();
+      if (initialNfaState.fixedGroup().isPresent()) {
+        final var initialFixedGroup = initialNfaState.fixedGroup().get();
+        if (initialFixedGroup instanceof GroupLocation.RelativeToGroup relative) {
+          groupMarkers.addAbsoluteFixedGroup(relative.relativeTo(), relative.distance(), true);
+        }
+      }
 
       // Initialize the states array to the right length
-      @SuppressWarnings({"unchecked"})
       final var states = IntStream
         .range(0, lastState)
         .<Map<TnfaTransition, Integer>>mapToObj(i -> new LinkedHashMap<TnfaTransition, Integer>())
@@ -220,7 +246,7 @@ final public class Tnfa implements DotGraph<Integer, TnfaTransition> {
         Collections.unmodifiableList(states),
         initialState,
         finalState,
-        fixedTags
+        groupMarkers
       );
     }
   }
@@ -281,25 +307,6 @@ final public class Tnfa implements DotGraph<Integer, TnfaTransition> {
     }
 
     return output;
-  }
-
-  /**
-   * Compute all the group markers in the NFA.
-   *
-   * @return all group markers (even unreachable ones)
-   */
-  public Set<GroupMarker> groupMarkers() {
-    return states
-      .stream()
-      .flatMap(state -> state.keySet().stream())
-      .flatMap((TnfaTransition transition) -> {
-        if (transition instanceof GroupMarker groupMarker) {
-          return Stream.of(groupMarker);
-        } else {
-          return Stream.empty();
-        }
-      })
-      .collect(Collectors.toSet());
   }
 
   @Override

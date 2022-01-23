@@ -19,9 +19,7 @@ import org.objectweb.asm.Opcodes;
  * backtracking features are not supported.
  *
  * TODO: make this more like the Java API (with a `Matcher` intermediate object
- *       that carries capture groups as fields) and get rid of the checkMatch vs.
- *       captureMatch distinction. Fold checkMatch into what happens when there
- *       are no groups
+ *       that carries capture groups as fields)
  *
  * @author Alec Theriault
  */
@@ -38,31 +36,24 @@ public interface DfaPattern {
    */
   public static DfaPattern compile(String regex)
   throws java.io.IOException, PatternSyntaxException, IllegalAccessException, NoSuchMethodException, InstantiationException, InvocationTargetException {
+    final boolean optimized = true;
+    final boolean debugInfo = false;
+
+    // NFAs
     final Tnfa nfaWithoutWildcard = Tnfa.parse(regex, true, false);
     final Tnfa nfaWithWildcard = Tnfa.parse(regex, true, true);
 
-    var captureDfa = Tdfa.fromTnfa(nfaWithoutWildcard, false);
-    while (captureDfa.simplifyTagCommands());
-    captureDfa = captureDfa.minimized();
-
-    final var checkDfa = captureDfa.minimizeWithoutTagCommands();
-
-    var lookingAtDfa = Tdfa.fromTnfa(nfaWithoutWildcard, true);
-    while (lookingAtDfa.simplifyTagCommands());
-    lookingAtDfa = lookingAtDfa.minimized();
-
-    var findDfa = Tdfa.fromTnfa(nfaWithWildcard, true);
-    while (findDfa.simplifyTagCommands());
-    findDfa = findDfa.minimized();
+    // DFAs
+    final Tdfa matchesDfa = Tdfa.fromTnfa(nfaWithoutWildcard, false, optimized);
+    final Tdfa lookingAtDfa = Tdfa.fromTnfa(nfaWithoutWildcard, true, optimized);
+    final Tdfa findDfa = Tdfa.fromTnfa(nfaWithWildcard, true, optimized);
 
     final String className = "automata/DfaPattern$Compiled";
-    final boolean debugInfo = false;
     final int classFlags = Opcodes.ACC_PRIVATE | Opcodes.ACC_FINAL | Opcodes.ACC_SYNTHETIC;
     final byte[] classBytes = CompiledDfa
       .generateDfaPatternSubclass(
         regex,
-        checkDfa,
-        captureDfa,
+        matchesDfa,
         lookingAtDfa,
         findDfa,
         className,
@@ -114,26 +105,6 @@ public interface DfaPattern {
    * @return extracted capture groups, or `null` if the pattern didn't match
    */
   public ArrayMatchResult captureMatch(CharSequence input, int startOffset, int endOffset);
-
-  /**
-   * Check if an input string matches the DFA pattern.
-   *
-   * @param input character sequence to match
-   * @return whether the entire input matches the pattern
-   */
-  public default boolean checkMatch(CharSequence input) {
-    return checkMatch(input, 0, input.length());
-  }
-
-  /**
-   * Check if a subsequence of an input string matches the DFA pattern.
-   *
-   * @param input character sequence to match
-   * @param startOffset offset in the input where the pattern starts matching
-   * @param endOffset offset in the input where the pattern ends matching
-   * @return whether the subsequence of the input matches the pattern
-   */
-  public boolean checkMatch(CharSequence input, int startOffset, int endOffset);
 
   /**
    * Match a prefix of the input string to the DFA pattern and extract capture
@@ -210,13 +181,10 @@ public interface DfaPattern {
     public final Tdfa matchesDfa;
     public final Tdfa lookingAtDfa;
     public final Tdfa findDfa;
+    public final int groupCount;
 
     public String pattern() {
       return pattern;
-    }
-
-    public boolean checkMatch(CharSequence input, int startOffset, int endOffset) {
-      return matchesDfa.checkSimulate(input, startOffset, endOffset, printDebugInfo);
     }
 
     public ArrayMatchResult captureMatch(CharSequence input, int startOffset, int endOffset) {
@@ -232,31 +200,30 @@ public interface DfaPattern {
     }
 
     public int groupCount() {
-      return matchesDfa.groupCount;
+      // Any of the 3 DFAs would return the same count
+      return groupCount;
     }
 
-    public InterpretableDfaPattern(String pattern, boolean printDebugInfo) throws PatternSyntaxException {
+    public InterpretableDfaPattern(
+      String pattern,
+      boolean printDebugInfo,
+      boolean optimized
+    ) throws PatternSyntaxException {
       this.pattern = pattern;
       this.printDebugInfo = printDebugInfo;
 
       final Tnfa nfaWithoutWildcard = Tnfa.parse(this.pattern, true, false);
       final Tnfa nfaWithWildcard = Tnfa.parse(this.pattern, true, true);
 
-      var matchesDfa = Tdfa.fromTnfa(nfaWithoutWildcard, false);
-      while (matchesDfa.simplifyTagCommands());
-      this.matchesDfa = matchesDfa.minimized();
+      this.matchesDfa = Tdfa.fromTnfa(nfaWithoutWildcard, false, optimized);
+      this.lookingAtDfa = Tdfa.fromTnfa(nfaWithoutWildcard, true, optimized);
+      this.findDfa = Tdfa.fromTnfa(nfaWithWildcard, true, optimized);
 
-      var lookingAtDfa = Tdfa.fromTnfa(nfaWithoutWildcard, true);
-      while (lookingAtDfa.simplifyTagCommands());
-      this.lookingAtDfa = lookingAtDfa.minimized();
-
-      var findDfa = Tdfa.fromTnfa(nfaWithWildcard, true);
-      while (findDfa.simplifyTagCommands());
-      this.findDfa = findDfa.minimized();
+      this.groupCount = matchesDfa.groupCount();
     }
 
     public InterpretableDfaPattern(String pattern) throws PatternSyntaxException {
-      this(pattern, false);
+      this(pattern, false, true);
     }
 
     @Override

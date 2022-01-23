@@ -20,7 +20,7 @@ sealed abstract class CharClass extends Re {
   private[this] def acceptHelper[A, B](regexVisitor: RegexVisitor[A, B]): A =
     regexVisitor.visitCharacterClass(acceptCharClass(regexVisitor))
 }
-object Re extends RegexVisitor[Re, CharClass] {
+object Re extends ReBuilder {
 
   def formatCodePoint(codePoint: Int): String =
     if (34 <= codePoint && codePoint <= 126) String.format("'%c'", codePoint)
@@ -150,6 +150,11 @@ object Re extends RegexVisitor[Re, CharClass] {
       visitor.visitBuiltinClass(cls)
   }
 
+  def parse(src: String): Re = RegexParser.parse(Re, src, false, false)
+}
+
+trait ReBuilder extends RegexVisitor[Re, CharClass] {
+
   override def visitCharacter(codePoint: Int) =
     Re.Character(codePoint)
 
@@ -197,6 +202,4 @@ object Re extends RegexVisitor[Re, CharClass] {
 
   override def visitBuiltinClass(cls: JBuiltinClass) =
     Re.BuiltinClass(cls)
-
-  def parse(src: String): Re = RegexParser.parse(Re, src, false, false)
 }

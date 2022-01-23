@@ -56,23 +56,9 @@ public class Tdfa implements DotGraph<Integer, SimpleImmutableEntry<CodeUnitTran
   public final int initialState;
 
   /**
-   * Count of groups in the DFA.
-   *
-   * TODO: clarify connection to `MatchResult.groupCount` (same or not?)
+   * Capture groups in the TDFA.
    */
-  public final int groupCount;
-
-  /**
-   * Set of all of the group markers which are tracked in the TDFA.
-   *
-   * This does not include markers in {@code fixedTags}.
-   */
-  public final Set<GroupMarker> trackedGroupMarkers;
-
-  /**
-   * Group markers whose position is fixed relative to other group markers.
-   */
-  public final Map<GroupMarker, RelativeGroupLocation> fixedTags;
+  public final GroupMarkers groupMarkers;
 
   /**
    * This controls the simulation behaviour when in an accepting state and
@@ -89,17 +75,13 @@ public class Tdfa implements DotGraph<Integer, SimpleImmutableEntry<CodeUnitTran
     Map<Integer, Map<CodeUnitTransition, TaggedTransition>> states,
     Map<Integer, List<TagCommand>> finalStates,
     int initialState,
-    int groupCount,
-    Set<GroupMarker> trackedGroupMarkers,
-    Map<GroupMarker, RelativeGroupLocation> fixedTags,
+    GroupMarkers groupMarkers,
     boolean prefixMode
   ) {
     this.states = states;
     this.finalStates = finalStates;
     this.initialState = initialState;
-    this.groupCount = groupCount;
-    this.trackedGroupMarkers = trackedGroupMarkers;
-    this.fixedTags = fixedTags;
+    this.groupMarkers = groupMarkers;
     this.prefixMode = prefixMode;
   }
 
@@ -176,80 +158,47 @@ public class Tdfa implements DotGraph<Integer, SimpleImmutableEntry<CodeUnitTran
     }
 
     // Construct the match
-    final int[] offsets = new int[groupCount * 2];
-    for (var trackedGroup : trackedGroupMarkers) {
+    final int[] offsets = new int[groupMarkers.groupCount() * 2];
+    for (var trackedGroup : groupMarkers.trackedGroupMarkers(prefixMode)) {
       offsets[trackedGroup.arrayOffset()] = registers.getOrDefault(trackedGroup, -1);
     }
-    for (var fixedTag : fixedTags.entrySet()) {
-      final var location = fixedTag.getValue();
-      int value = offsets[location.relativeTo().arrayOffset()];
-      if (value != -1) {
-        value -= location.distance();
-      } else if (location.unavoidable()) {
-        throw new IllegalStateException("Location " + location + " should be unavoidable");
+    for (final var fixedClass : groupMarkers.classes()) {
+      final var members = new HashSet<>(fixedClass.memberDistances.entrySet());
+
+      // Look up where the class representative is
+      int representativeMarker;
+      if (fixedClass.distanceToStart.isPresent()) {
+        final int distanceToStart = fixedClass.distanceToStart.getAsInt();
+        representativeMarker = startOffset + distanceToStart;
+        members.add(new SimpleImmutableEntry<>(fixedClass.representative, -distanceToStart));
+      } else if (fixedClass.distanceToEnd.isPresent() && !prefixMode) {
+        final int distanceToEnd = fixedClass.distanceToEnd.getAsInt();
+        representativeMarker = endOffset + distanceToEnd;
+        members.add(new SimpleImmutableEntry<>(fixedClass.representative, distanceToEnd));
+      } else {
+        representativeMarker = offsets[fixedClass.representative.arrayOffset()];
       }
-      offsets[fixedTag.getKey().arrayOffset()] = value;
+
+      if (representativeMarker == -1 && fixedClass.unavoidable) {
+        throw new IllegalStateException("Class " + fixedClass.representative + " should be unavoidable");
+      }
+
+      // Fill in the locations of all members of the class
+      for (final var member : members) {
+        offsets[member.getKey().arrayOffset()] = representativeMarker == -1
+          ? -1
+          : representativeMarker + member.getValue();
+      }
     }
 
     return new ArrayMatchResult(input, offsets);
   }
 
   /**
-   * Run against an input check if it matches.
-   *
-   * @param input character sequence to match
-   * @param startOffset offset in the input where the pattern starts matching
-   * @param endOffset offset in the input where the pattern ends matching
-   * @param printDebugInfo print to STDERR a trace of what is happening
-   * @return match results
+   * @return number of capture groups in the DFA.
    */
-  public boolean checkSimulate(
-    CharSequence input,
-    int startOffset,
-    int endOffset,
-    boolean printDebugInfo
-  ) {
-    int currentState = initialState;
-    int position = startOffset;
-
-    if (printDebugInfo) {
-      System.err.println("[TDFA] starting run on: " + input);
-    }
-
-    while (position < endOffset) {
-      final char codeUnit = input.charAt(position);
-
-      // Find the matching code unit transition
-      final var matchingTransition = states
-        .get(currentState)
-        .entrySet()
-        .stream()
-        .filter(entry -> entry.getKey().codeUnitSet().contains(codeUnit))
-        .findFirst();
-      if (!matchingTransition.isPresent()) {
-        if (prefixMode && finalStates.containsKey(currentState)) {
-          if (printDebugInfo) {
-            System.err.println("[TDFA] completing prefix run at " + currentState + "; no transition for " + codeUnit);
-          }
-          break;
-        }
-        if (printDebugInfo) {
-          System.err.println("[TDFA] ending run at " + currentState + "; no transition for " + codeUnit);
-        }
-        return false;
-      }
-      final var tagged = matchingTransition.get().getValue();
-
-      // Update the DFA state and position
-      currentState = tagged.targetState();
-      if (printDebugInfo) {
-        System.err.println("[TDFA] entering " + currentState);
-      }
-      position++;
-    }
-
-    // Check whether we are in an accepting state
-    return finalStates.containsKey(currentState);
+  public int groupCount() {
+    return groupMarkers.groupCount();
   }
 
   /**
@@ -411,13 +360,13 @@ public class Tdfa implements DotGraph<Integer, SimpleImmutableEntry<CodeUnitTran
    *
    * @param nfa non-deterministic tagged automata
    * @param prefixMode should the TDFA accept matches that end at an accepting state without exhausting input?
+   * @param optimized should tag commands be simplified and the DFA minimized?
    * @return deterministc tagged automata
    */
-  public static Tdfa fromTnfa(Tnfa nfa, boolean prefixMode) {
+  public static Tdfa fromTnfa(Tnfa nfa, boolean prefixMode, boolean optimized) {
 
-    final Set<GroupMarker> groupMarkers = nfa.groupMarkers();
-    final Set<GroupMarker> trackedGroupMarkers = new HashSet<>(groupMarkers);
-    trackedGroupMarkers.removeAll(nfa.fixedTags.keySet());
+    final GroupMarkers groupMarkers = nfa.groupMarkers;
+    final Set<GroupMarker> trackedGroupMarkers = groupMarkers.trackedGroupMarkers(prefixMode);
 
     // Fresh TDFA states come from here
     final IntSupplier dfaStateIdSupplier = new IntSupplier() {
@@ -748,15 +697,21 @@ public class Tdfa implements DotGraph<Integer, SimpleImmutableEntry<CodeUnitTran
       }
     }
 
-    return new Tdfa(
+    final var dfa = new Tdfa(
       states,
       finalStates,
       initialState,
-      groupMarkers.size() / 2,
-      trackedGroupMarkers,
-      nfa.fixedTags,
+      groupMarkers,
       prefixMode
     );
+
+    // Run optimizations
+    if (optimized) {
+      while (dfa.simplifyTagCommands());
+      return dfa.minimized();
+    } else {
+      return dfa;
+    }
   }
 
   /**
@@ -826,6 +781,7 @@ public class Tdfa implements DotGraph<Integer, SimpleImmutableEntry<CodeUnitTran
     }
 
     // Add in final transition blocks (TODO: reduce code duplication)
+    final var trackedGroupMarkers = groupMarkers.trackedGroupMarkers(prefixMode);
     for (var entry : finalStates.entrySet()) {
       final var fromBlock = stateBlocks.get(entry.getKey());
       final var commands = entry.getValue();
@@ -923,10 +879,7 @@ public class Tdfa implements DotGraph<Integer, SimpleImmutableEntry<CodeUnitTran
    */
   public Tdfa deepCopy(
     Map<Integer, Integer> mergeStates,
-    UnaryOperator<List<TagCommand>> cloneCommands,
-    IntUnaryOperator updateGroupCount,
-    UnaryOperator<Set<GroupMarker>> cloneTrackedGroupMarkers,
-    UnaryOperator<Map<GroupMarker, RelativeGroupLocation>> cloneFixedTags
+    UnaryOperator<List<TagCommand>> cloneCommands
   ) {
 
     // Updated states
@@ -966,39 +919,8 @@ public class Tdfa implements DotGraph<Integer, SimpleImmutableEntry<CodeUnitTran
       newStates,
       newFinalStates,
       newInitialState,
-      updateGroupCount.applyAsInt(groupCount),
-      cloneTrackedGroupMarkers.apply(trackedGroupMarkers),
-      cloneFixedTags.apply(fixedTags),
+      groupMarkers,
       prefixMode
-    );
-  }
-
-  /**
-   * Minimize the TDFA while also removing all commands.
-   *
-   * The output TDFA should accept and reject the same inputs, but it won't
-   * carry any tags or groups.
-   *
-   * @return minimized TDFA without any groups
-   */
-  public Tdfa minimizeWithoutTagCommands() {
-
-    // Mapping from states that should be collapsed to the canonical state
-    final Map<Integer, Integer> canonicalStates = new HashMap<>();
-    for (final SortedSet<Integer> partition : minimizedDfaPartition(true)) {
-      final var canonical = partition.first();
-      for (final var other : partition) {
-        canonicalStates.put(other, canonical);
-      }
-      canonicalStates.remove(canonical);
-    }
-
-    return deepCopy(
-      canonicalStates,
-      k -> Collections.emptyList(),
-      i -> 0,
-      m -> Collections.emptySet(),
-      t -> Collections.emptyMap()
     );
   }
 
@@ -1024,10 +946,7 @@ public class Tdfa implements DotGraph<Integer, SimpleImmutableEntry<CodeUnitTran
 
     return deepCopy(
       canonicalStates,
-      LinkedList::new,
-      IntUnaryOperator.identity(),
-      UnaryOperator.identity(),
-      UnaryOperator.identity()
+      LinkedList::new
     );
   }
 
@@ -1169,34 +1088,6 @@ public class Tdfa implements DotGraph<Integer, SimpleImmutableEntry<CodeUnitTran
     }
 
     return partition;
-  }
-
-  /**
-   * Traverse the DFA to find all states reachable when starting from any
-   * final state.
-   *
-   * This includes the accepting states themselves.
-   *
-   * @return states reachable from final states
-   */
-  public Set<Integer> reachableFromFinalState() {
-    final var reachable = new HashSet<Integer>();
-    final var toVisit = new Stack<Integer>();
-
-    reachable.addAll(finalStates.keySet());
-    toVisit.addAll(reachable);
-
-    while (!toVisit.isEmpty()) {
-      final var nextState = toVisit.pop();
-      for (final var transition : states.get(nextState).values()) {
-        final var targetState = transition.targetState();
-        if (reachable.add(targetState)) {
-          toVisit.push(targetState);
-        }
-      }
-    }
-
-    return reachable;
   }
 
   @Override
