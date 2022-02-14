@@ -2,12 +2,13 @@ package automata.codegen;
 
 import static java.util.AbstractMap.SimpleImmutableEntry;
 
-import automata.graph.Tdfa;
+import automata.graph.CodeUnitTransition;
 import automata.graph.GroupMarker;
+import automata.graph.GroupMarkers;
+import automata.graph.MatchMode;
 import automata.graph.Register;
 import automata.graph.TagCommand;
-import automata.graph.CodeUnitTransition;
-import automata.graph.GroupMarkers;
+import automata.graph.Tdfa;
 import automata.util.IntRange;
 import automata.util.IntRangeSet;
 import java.util.ArrayList;
@@ -207,10 +208,10 @@ class TdfaMethodCodegen extends BytecodeHelpers {
       Method.CHARAT_M.invokeMethod(mv, Method.CHARSEQUENCE_CLASS_NAME);
 
       // Generate the transition
-      final Optional<List<TagCommand>> acceptingFinalCommands = dfa.prefixMode
-        ? Optional.ofNullable(finalCommands)
-        : Optional.empty();
-      visitTransition(dfa.states.get(state), acceptingFinalCommands);
+      visitTransition(
+        dfa.states.get(state),
+        Optional.ofNullable(dfa.mode == MatchMode.PREFIX ? finalCommands : null)
+      );
     }
 
     // Final blocks
@@ -272,7 +273,7 @@ class TdfaMethodCodegen extends BytecodeHelpers {
       }
     });
     dfa.groupMarkers.endClass().ifPresent((GroupMarkers.FixedClass endClass) -> {
-      if (dfa.prefixMode || !fixedClasses.remove(endClass)) {
+      if (dfa.mode == MatchMode.PREFIX || !fixedClasses.remove(endClass)) {
         return;
       }
 

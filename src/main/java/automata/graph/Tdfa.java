@@ -27,7 +27,13 @@ import java.util.function.IntUnaryOperator;
 import java.util.function.UnaryOperator;
 import static java.util.AbstractMap.SimpleImmutableEntry;
 
-public class Tdfa implements DotGraph<Integer, SimpleImmutableEntry<CodeUnitTransition, List<TagCommand>>> {
+/**
+ * DFA tagged where transitions (include final transitions) can be tagged with
+ * commands.
+ *
+ * @author Alec Theriault
+ */
+public class Tdfa implements DotGraph<Integer, TdfaTransition> {
 
   public record TaggedTransition(
     List<TagCommand> commands,
@@ -64,25 +70,23 @@ public class Tdfa implements DotGraph<Integer, SimpleImmutableEntry<CodeUnitTran
    * This controls the simulation behaviour when in an accepting state and
    * finding no matching transition for the next code unit.
    *
-   * If `false`, the simulation behaviour is to fail. If `true`, the simulation
-   * behaviour is to use the final transition.
-   *
-   * TODO: consider better names for this
+   * If {@link FULL}, the simulation behaviour is to fail. If {@code PREFIX},
+   * the simulation behaviour is to use the final transition.
    */
-  public final boolean prefixMode;
+  public final MatchMode mode;
 
   public Tdfa(
     Map<Integer, Map<CodeUnitTransition, TaggedTransition>> states,
     Map<Integer, List<TagCommand>> finalStates,
     int initialState,
     GroupMarkers groupMarkers,
-    boolean prefixMode
+    MatchMode mode
   ) {
     this.states = states;
     this.finalStates = finalStates;
     this.initialState = initialState;
     this.groupMarkers = groupMarkers;
-    this.prefixMode = prefixMode;
+    this.mode = mode;
   }
 
   /**
@@ -119,7 +123,7 @@ public class Tdfa implements DotGraph<Integer, SimpleImmutableEntry<CodeUnitTran
         .filter(entry -> entry.getKey().codeUnitSet().contains(codeUnit))
         .findFirst();
       if (!matchingTransition.isPresent()) {
-        if (prefixMode && finalStates.containsKey(currentState)) {
+        if (mode == MatchMode.PREFIX && finalStates.containsKey(currentState)) {
           if (printDebugInfo) {
             System.err.println("[TDFA] completing prefix run at " + currentState + "; no transition for " + codeUnit);
           }
@@ -159,7 +163,7 @@ public class Tdfa implements DotGraph<Integer, SimpleImmutableEntry<CodeUnitTran
 
     // Construct the match
     final int[] offsets = new int[groupMarkers.groupCount() * 2];
-    for (var trackedGroup : groupMarkers.trackedGroupMarkers(prefixMode)) {
+    for (var trackedGroup : groupMarkers.trackedGroupMarkers(mode)) {
       offsets[trackedGroup.arrayOffset()] = registers.getOrDefault(trackedGroup, -1);
     }
     for (final var fixedClass : groupMarkers.classes()) {
@@ -171,7 +175,7 @@ public class Tdfa implements DotGraph<Integer, SimpleImmutableEntry<CodeUnitTran
         final int distanceToStart = fixedClass.distanceToStart.getAsInt();
         representativeMarker = startOffset + distanceToStart;
         members.add(new SimpleImmutableEntry<>(fixedClass.representative, -distanceToStart));
-      } else if (fixedClass.distanceToEnd.isPresent() && !prefixMode) {
+      } else if (fixedClass.distanceToEnd.isPresent() && mode == MatchMode.FULL) {
         final int distanceToEnd = fixedClass.distanceToEnd.getAsInt();
         representativeMarker = endOffset + distanceToEnd;
         members.add(new SimpleImmutableEntry<>(fixedClass.representative, distanceToEnd));
@@ -359,14 +363,14 @@ public class Tdfa implements DotGraph<Integer, SimpleImmutableEntry<CodeUnitTran
    * Determinization algorithm for constructing a TDFA from a TNFA.
    *
    * @param nfa non-deterministic tagged automata
-   * @param prefixMode should the TDFA accept matches that end at an accepting state without exhausting input?
+   * @param mode how should the TDFA handle invalid transitions?
    * @param optimized should tag commands be simplified and the DFA minimized?
    * @return deterministc tagged automata
    */
-  public static Tdfa fromTnfa(Tnfa nfa, boolean prefixMode, boolean optimized) {
+  public static Tdfa fromTnfa(Tnfa nfa, MatchMode mode, boolean optimized) {
 
     final GroupMarkers groupMarkers = nfa.groupMarkers;
-    final Set<GroupMarker> trackedGroupMarkers = groupMarkers.trackedGroupMarkers(prefixMode);
+    final Set<GroupMarker> trackedGroupMarkers = groupMarkers.trackedGroupMarkers(mode);
 
     // Fresh TDFA states come from here
     final IntSupplier dfaStateIdSupplier = new IntSupplier() {
@@ -474,7 +478,7 @@ public class Tdfa implements DotGraph<Integer, SimpleImmutableEntry<CodeUnitTran
        * are all already set to group markers from the last time the NFA final
        * state was visited
        */
-      if (prefixMode && !isFinalState && nextState.prefixAlreadyMatched()) {
+      if (mode == MatchMode.PREFIX && !isFinalState && nextState.prefixAlreadyMatched()) {
         finalStates.put(nextState.dfaStateId(), new LinkedList<>());
       }
 
@@ -602,7 +606,7 @@ public class Tdfa implements DotGraph<Integer, SimpleImmutableEntry<CodeUnitTran
          * This is how in prefix mode greedy quantifiers look for more input
          * while reluctant ones stop early.
          */
-        if (prefixMode && row.nfaState == nfa.finalState) {
+        if (mode == MatchMode.PREFIX && row.nfaState == nfa.finalState) {
           break;
         }
       }
@@ -702,7 +706,7 @@ public class Tdfa implements DotGraph<Integer, SimpleImmutableEntry<CodeUnitTran
       finalStates,
       initialState,
       groupMarkers,
-      prefixMode
+      mode
     );
 
     // Run optimizations
@@ -781,7 +785,7 @@ public class Tdfa implements DotGraph<Integer, SimpleImmutableEntry<CodeUnitTran
     }
 
     // Add in final transition blocks (TODO: reduce code duplication)
-    final var trackedGroupMarkers = groupMarkers.trackedGroupMarkers(prefixMode);
+    final var trackedGroupMarkers = groupMarkers.trackedGroupMarkers(mode);
     for (var entry : finalStates.entrySet()) {
       final var fromBlock = stateBlocks.get(entry.getKey());
       final var commands = entry.getValue();
@@ -920,7 +924,7 @@ public class Tdfa implements DotGraph<Integer, SimpleImmutableEntry<CodeUnitTran
       newFinalStates,
       newInitialState,
       groupMarkers,
-      prefixMode
+      mode
     );
   }
 
@@ -1099,16 +1103,16 @@ public class Tdfa implements DotGraph<Integer, SimpleImmutableEntry<CodeUnitTran
   }
 
   @Override
-  public Stream<Edge<Integer, SimpleImmutableEntry<CodeUnitTransition, List<TagCommand>>>> edges() {
+  public Stream<Edge<Integer, TdfaTransition>> edges() {
 
     final Integer noState = null;
-    final CodeUnitTransition noCodeUnit = null;
+    final Optional<CodeUnitTransition> noCodeUnit = Optional.empty();
     final List<TagCommand> noCommands = Collections.emptyList();
 
     final var initialEdge = new Edge<>(
       noState,
       initialState,
-      new SimpleImmutableEntry<>(noCodeUnit, noCommands)
+      new TdfaTransition(noCodeUnit, noCommands)
     );
 
     final var finalEdges = finalStates
@@ -1118,7 +1122,7 @@ public class Tdfa implements DotGraph<Integer, SimpleImmutableEntry<CodeUnitTran
         new Edge<>(
           entry.getKey(),
           noState,
-          new SimpleImmutableEntry<>(noCodeUnit, entry.getValue())
+          new TdfaTransition(noCodeUnit, entry.getValue())
         )
       );
 
@@ -1134,7 +1138,10 @@ public class Tdfa implements DotGraph<Integer, SimpleImmutableEntry<CodeUnitTran
             new Edge<>(
               stateEntry.getKey(),
               transitionEntry.getValue().targetState(),
-              new SimpleImmutableEntry<>(transitionEntry.getKey(), transitionEntry.getValue().commands())
+              new TdfaTransition(
+                Optional.of(transitionEntry.getKey()),
+                transitionEntry.getValue().commands()
+              )
             )
           )
       );
@@ -1145,24 +1152,7 @@ public class Tdfa implements DotGraph<Integer, SimpleImmutableEntry<CodeUnitTran
   }
 
   @Override
-  public String renderEdgeLabel(Edge<Integer, SimpleImmutableEntry<CodeUnitTransition, List<TagCommand>>> edge) {
-    final var label = edge.label();
-    final var codeUnit = label.getKey();
-    final var commands = label.getValue();
-    final var builder = new StringBuilder();
-
-    if (codeUnit != null) {
-      builder.append(codeUnit.dotLabel());
-    }
-
-    if (codeUnit != null || !commands.isEmpty()) {
-      builder.append("&nbsp;/&nbsp;");
-    }
-
-    if (!commands.isEmpty()) {
-      builder.append(commands.stream().map(TagCommand::dotLabel).collect(Collectors.joining("; ")));
-    }
-
-    return builder.toString();
+  public String renderEdgeLabel(Edge<Integer, TdfaTransition> edge) {
+    return edge.label().dotLabel();
   }
 }

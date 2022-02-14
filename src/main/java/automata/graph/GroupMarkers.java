@@ -122,17 +122,21 @@ public class GroupMarkers {
    * Set of all group markers that need to be tracked in order for the full set
    * of group markers to be derived.
    *
-   * @param prefixMode matches may end before the end of the input
+   * @param mode matching mode
    * @return minimal set of tags to track
    */
-  public Set<GroupMarker> trackedGroupMarkers(boolean prefixMode) {
+  public Set<GroupMarker> trackedGroupMarkers(MatchMode mode) {
     final var toTrack = new HashSet<GroupMarker>(fixityClasses.keySet());
+
     if (startClass != null) {
       toTrack.remove(startClass.representative);
     }
-    if (endClass != null && !prefixMode) {
+
+    // Full matches must end at the end of the input
+    if (endClass != null && mode == MatchMode.FULL) {
       toTrack.remove(endClass.representative);
     }
+
     return toTrack;
   }
 

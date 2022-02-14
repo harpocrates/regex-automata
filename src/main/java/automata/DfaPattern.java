@@ -1,6 +1,7 @@
 package automata;
 
 import automata.codegen.CompiledDfa;
+import automata.graph.MatchMode;
 import automata.graph.Tdfa;
 import automata.graph.Tnfa;
 import java.lang.invoke.MethodHandles;
@@ -44,9 +45,9 @@ public interface DfaPattern {
     final Tnfa nfaWithWildcard = Tnfa.parse(regex, true, true);
 
     // DFAs
-    final Tdfa matchesDfa = Tdfa.fromTnfa(nfaWithoutWildcard, false, optimized);
-    final Tdfa lookingAtDfa = Tdfa.fromTnfa(nfaWithoutWildcard, true, optimized);
-    final Tdfa findDfa = Tdfa.fromTnfa(nfaWithWildcard, true, optimized);
+    final Tdfa matchesDfa = Tdfa.fromTnfa(nfaWithoutWildcard, MatchMode.FULL, optimized);
+    final Tdfa lookingAtDfa = Tdfa.fromTnfa(nfaWithoutWildcard, MatchMode.PREFIX, optimized);
+    final Tdfa findDfa = Tdfa.fromTnfa(nfaWithWildcard, MatchMode.PREFIX, optimized);
 
     final String className = "automata/DfaPattern$Compiled";
     final int classFlags = Opcodes.ACC_PRIVATE | Opcodes.ACC_FINAL | Opcodes.ACC_SYNTHETIC;
@@ -151,12 +152,34 @@ public interface DfaPattern {
   }
 
   public default Stream<ArrayMatchResult> results(CharSequence input) {
-    int endOffset = input.length();
+    final int endOffset = input.length();
     return Stream.iterate(
       captureFind(input, 0, endOffset),
       result -> result != null,
       result -> captureFind(input, result.end(), endOffset)
     );
+  }
+
+  public default String replaceAll(CharSequence input, String replacement) {
+    final StringBuilder replaced = new StringBuilder();
+
+    int startOffset = 0;
+    final int endOffset = input.length();
+    while (true) {
+      final var result = captureFind(input, startOffset, endOffset);
+      if (result == null) {
+        replaced.append(input.subSequence(startOffset, endOffset));
+        break;
+      } else {
+        if (startOffset != result.start()) {
+          replaced.append(input.subSequence(startOffset, result.start()));
+        }
+        replaced.append(replacement);
+        startOffset = result.end();
+      }
+    }
+
+    return replaced.toString();
   }
 
   /**
@@ -215,9 +238,9 @@ public interface DfaPattern {
       final Tnfa nfaWithoutWildcard = Tnfa.parse(this.pattern, true, false);
       final Tnfa nfaWithWildcard = Tnfa.parse(this.pattern, true, true);
 
-      this.matchesDfa = Tdfa.fromTnfa(nfaWithoutWildcard, false, optimized);
-      this.lookingAtDfa = Tdfa.fromTnfa(nfaWithoutWildcard, true, optimized);
-      this.findDfa = Tdfa.fromTnfa(nfaWithWildcard, true, optimized);
+      this.matchesDfa = Tdfa.fromTnfa(nfaWithoutWildcard, MatchMode.FULL, optimized);
+      this.lookingAtDfa = Tdfa.fromTnfa(nfaWithoutWildcard, MatchMode.PREFIX, optimized);
+      this.findDfa = Tdfa.fromTnfa(nfaWithWildcard, MatchMode.PREFIX, optimized);
 
       this.groupCount = matchesDfa.groupCount();
     }
