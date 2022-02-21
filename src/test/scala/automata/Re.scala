@@ -2,6 +2,7 @@ package automata
 
 import automata.parser.{RegexParser, BuiltinClass => JBuiltinClass, Boundary => JBoundary, RegexVisitor, CharClassVisitor}
 import scala.jdk.OptionConverters._
+import java.lang.Character.{UnicodeBlock, UnicodeScript}
 import java.util.OptionalInt;
 
 sealed abstract class Re {
@@ -150,6 +151,18 @@ object Re extends ReBuilder {
       visitor.visitBuiltinClass(cls)
   }
 
+  /** Unicode block class */
+  final case class UnicodeBlockClass(block: UnicodeBlock) extends CharClass {
+    override def acceptCharClass[A](visitor: CharClassVisitor[A]): A =
+      visitor.visitUnicodeBlock(block)
+  }
+
+  /** Unicode script class */
+  final case class UnicodeScriptClass(script: UnicodeScript) extends CharClass {
+    override def acceptCharClass[A](visitor: CharClassVisitor[A]): A =
+      visitor.visitUnicodeScript(script)
+  }
+
   def parse(src: String): Re = RegexParser.parse(Re, src, false, false)
 }
 
@@ -202,4 +215,10 @@ trait ReBuilder extends RegexVisitor[Re, CharClass] {
 
   override def visitBuiltinClass(cls: JBuiltinClass) =
     Re.BuiltinClass(cls)
+
+  override def visitUnicodeBlock(block: UnicodeBlock) =
+    Re.UnicodeBlockClass(block)
+
+  override def visitUnicodeScript(script: UnicodeScript) =
+    Re.UnicodeScriptClass(script)
 }

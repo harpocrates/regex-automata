@@ -59,5 +59,19 @@ public interface CharClassVisitor<C> {
    * @param cls builtin class
    */
   C visitBuiltinClass(BuiltinClass cls);
+
+  /**
+   * Matches characters inside a specified unicode block.
+   *
+   * @param block unicode block
+   */
+  C visitUnicodeBlock(Character.UnicodeBlock block);
+
+  /**
+   * Matches characters inside a specified unicode script.
+   *
+   * @param script unicode script
+   */
+  C visitUnicodeScript(Character.UnicodeScript script);
 }
 

@@ -2,6 +2,7 @@ package automata
 
 import automata.parser.{RegexVisitor, BuiltinClass, Boundary}
 import scala.annotation.switch
+import java.lang.Character.{UnicodeBlock, UnicodeScript}
 import java.util.OptionalInt
 
 /** Rendered output
@@ -197,6 +198,18 @@ object RegexPrinter extends RegexVisitor[RenderedWithPriority, RenderedWithPrior
         case BuiltinClass.WORD => "\\w"
         case BuiltinClass.NON_WORD => "\\W"
       },
+      priority = Priority.Top
+    )
+
+  override def visitUnicodeBlock(block: UnicodeBlock) =
+    RenderedWithPriority(
+      rendered = s"\\p{In$block}",
+      priority = Priority.Top
+    )
+
+  override def visitUnicodeScript(script: UnicodeScript) =
+    RenderedWithPriority(
+      rendered = s"\\p{Is$script}",
       priority = Priority.Top
     )
 }

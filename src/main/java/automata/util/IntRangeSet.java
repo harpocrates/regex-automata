@@ -76,6 +76,41 @@ public record IntRangeSet(
     return union(Arrays.stream(ranges).map(range -> IntRangeSet.of(range)).toList());
   }
 
+  /**
+   * Construct a set that is all integers in a range meeting a condition.
+   *
+   * @param range input range
+   * @param condition predicate that must be satisfied for inclusion in output
+   * @return subset of range which satisfies the condition
+   */
+  public static IntRangeSet matching(IntRange range, IntPredicate condition) {
+    if (range == null) {
+      return IntRangeSet.EMPTY;
+    }
+
+    final var outputRanges = new ArrayList<IntRange>();
+    final int rangeUpperBound = range.upperBound();
+    int nextInt = range.lowerBound();
+
+    do {
+      // Skip past non-matching integers
+      while (nextInt <= rangeUpperBound && !condition.test(nextInt)) {
+        nextInt++;
+      }
+
+      // Collect the next range
+      final int startRange = nextInt;
+      while (nextInt <= rangeUpperBound && condition.test(nextInt)) {
+        nextInt++;
+      }
+      if (nextInt > startRange) {
+        outputRanges.add(IntRange.between(startRange, nextInt - 1));
+      }
+    } while (nextInt <= rangeUpperBound);
+
+    return new IntRangeSet(outputRanges);
+  }
+
   @Override
   public String toString() {
     final var builder = new StringBuilder("IntRangeSet.of(");

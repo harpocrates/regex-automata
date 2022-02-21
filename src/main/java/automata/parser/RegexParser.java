@@ -552,6 +552,49 @@ public final class RegexParser<A, C> {
               throw error("`}` but got end of regex");
             }
 
+          // Properties
+          case 'p':
+            position++;
+
+            // Name of the property
+            final String propertyName;
+            if (position >= length) {
+              throw error("Expected property name but got end of regex");
+            } else if (input.charAt(position) != '{') {
+              propertyName = input.substring(position, position+1);
+            } else {
+              final int startProperty = position++;
+              do {
+                if (position >= length) {
+                  throw error("Expected `}` but got end of regex");
+                }
+              } while (input.charAt(position++) != '}');
+              propertyName = input.substring(startProperty + 1, position - 1);
+            }
+
+            // Property
+            if (propertyName.startsWith("In")) {
+              final var blockName = propertyName.substring(2);
+              final Character.UnicodeBlock block;
+              try {
+                block = Character.UnicodeBlock.forName(blockName);
+              } catch (IllegalArgumentException err) {
+                throw error("Unknown unicode block " + blockName);
+              }
+              return visitor.visitUnicodeBlock(block);
+            } else if (propertyName.startsWith("Is")) {
+              final var scriptName = propertyName.substring(2);
+              final Character.UnicodeScript script;
+              try {
+                script = Character.UnicodeScript.forName(scriptName);
+              } catch (IllegalArgumentException err) {
+                throw error("Unknown unicode script " + scriptName);
+              }
+              return visitor.visitUnicodeScript(script);
+            } else {
+              throw error("Unknown property " + propertyName);
+            }
+
           // Back-references
           case '1':
           case '2':

@@ -1,6 +1,7 @@
 package automata.graph;
 
 import automata.parser.Boundary;
+import automata.parser.CodePoints;
 import automata.parser.RegexVisitor;
 import automata.parser.CodePointSetVisitor;
 import automata.util.IntRange;
@@ -105,7 +106,7 @@ public abstract class RegexNfaBuilder<Q>
     //       and only ever update the last one
     final var supplementaryCodeUnits = new HashMap<Integer, LinkedList<IntRange>>();
 
-    for (IntRange range : codePointSet.difference(IntRangeSet.of(CodePointSetVisitor.BMP_RANGE)).ranges()) {
+    for (IntRange range : codePointSet.difference(IntRangeSet.of(CodePoints.BMP_RANGE)).ranges()) {
 
       int rangeStartHi = Character.highSurrogate(range.lowerBound());
       int rangeStartLo = Character.lowSurrogate(range.lowerBound());
@@ -133,7 +134,7 @@ public abstract class RegexNfaBuilder<Q>
         for (int hi = rangeStartHi + 1; hi <= rangeEndHi - 1; hi++) {
           supplementaryCodeUnits
             .computeIfAbsent(hi, k -> new LinkedList<>())
-            .addLast(CodePointSetVisitor.LOW_SURROGATE_RANGE);
+            .addLast(CodePoints.LOW_SURROGATE_RANGE);
         }
       }
     }
@@ -153,14 +154,14 @@ public abstract class RegexNfaBuilder<Q>
   }
 
   public UnaryOperator<NfaState<Q>> visitCharacterClass(IntRangeSet codePointSet) {
-    if (!codePointSet.difference(IntRangeSet.of(CodePointSetVisitor.UNICODE_RANGE)).isEmpty()) {
+    if (!codePointSet.difference(IntRangeSet.of(CodePoints.UNICODE_RANGE)).isEmpty()) {
       throw new IllegalArgumentException("Codepoints outside the unicode range aren't allowed");
     }
 
     /* Code unit transitions corresponding to the basic multilingual plane.
      * By definition of the BMP, this means these are exactly one code unit.
      */
-    final var basicCodeUnits = codePointSet.intersection(IntRangeSet.of(CodePointSetVisitor.BMP_RANGE));
+    final var basicCodeUnits = codePointSet.intersection(IntRangeSet.of(CodePoints.BMP_RANGE));
 
     /* Mapping from the first (high) 16-bit code unit to the range of second
      * (low) 16-bit code units. There are `0xDBFF - 0xD800 + 1 = 1024` high
