@@ -93,13 +93,15 @@ public class Tdfa implements DotGraph<Integer, TdfaTransition> {
    * Run against an input and extra capture groups.
    *
    * @param input character sequence to match
+   * @param groups offsets of start/end of groups
    * @param startOffset offset in the input where the pattern starts matching
    * @param endOffset offset in the input where the pattern ends matching
    * @param printDebugInfo print to STDERR a trace of what is happening
-   * @return extracted capture groups, or `null` if the pattern didn't match
+   * @return whether the pattern matched
    */
-  public ArrayMatchResult captureSimulate(
+  public boolean captureSimulate(
     CharSequence input,
+    int[] groups,
     int startOffset,
     int endOffset,
     boolean printDebugInfo
@@ -107,6 +109,10 @@ public class Tdfa implements DotGraph<Integer, TdfaTransition> {
     int currentState = initialState;
     int position = startOffset;
     final var registers = new HashMap<Register, Integer>();
+
+    if (groups.length != groupMarkers.groupCount() * 2) {
+      throw new IllegalArgumentException("groups array has the wrong size");
+    }
 
     if (printDebugInfo) {
       System.err.println("[TDFA] starting run on: " + input);
@@ -132,7 +138,7 @@ public class Tdfa implements DotGraph<Integer, TdfaTransition> {
         if (printDebugInfo) {
           System.err.println("[TDFA] ending run at " + currentState + "; no transition for " + codeUnit);
         }
-        return null;
+        return false;
       }
       final var tagged = matchingTransition.get().getValue();
 
@@ -153,7 +159,7 @@ public class Tdfa implements DotGraph<Integer, TdfaTransition> {
     final var commands = finalStates.get(currentState);
     if (commands == null) {
       // TODO: log command
-      return null;
+      return false;
     }
 
     // Apply the final accepting commands
@@ -162,9 +168,8 @@ public class Tdfa implements DotGraph<Integer, TdfaTransition> {
     }
 
     // Construct the match
-    final int[] offsets = new int[groupMarkers.groupCount() * 2];
     for (var trackedGroup : groupMarkers.trackedGroupMarkers(mode)) {
-      offsets[trackedGroup.arrayOffset()] = registers.getOrDefault(trackedGroup, -1);
+      groups[trackedGroup.arrayOffset()] = registers.getOrDefault(trackedGroup, -1);
     }
     for (final var fixedClass : groupMarkers.classes()) {
       final var members = new HashSet<>(fixedClass.memberDistances.entrySet());
@@ -180,7 +185,7 @@ public class Tdfa implements DotGraph<Integer, TdfaTransition> {
         representativeMarker = endOffset + distanceToEnd;
         members.add(new SimpleImmutableEntry<>(fixedClass.representative, distanceToEnd));
       } else {
-        representativeMarker = offsets[fixedClass.representative.arrayOffset()];
+        representativeMarker = groups[fixedClass.representative.arrayOffset()];
       }
 
       if (representativeMarker == -1 && fixedClass.unavoidable) {
@@ -189,20 +194,22 @@ public class Tdfa implements DotGraph<Integer, TdfaTransition> {
 
       // Fill in the locations of all members of the class
       for (final var member : members) {
-        offsets[member.getKey().arrayOffset()] = representativeMarker == -1
+        groups[member.getKey().arrayOffset()] = representativeMarker == -1
           ? -1
           : representativeMarker + member.getValue();
       }
     }
 
-    return new ArrayMatchResult(input, offsets);
+    return true;
   }
 
   /**
+   * Calculate the number of capture groups in the DFA, excluding the outer one.
+   *
    * @return number of capture groups in the DFA.
    */
   public int groupCount() {
-    return groupMarkers.groupCount();
+    return groupMarkers.groupCount() - 1;
   }
 
   /**

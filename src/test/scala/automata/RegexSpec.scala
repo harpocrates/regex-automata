@@ -2,7 +2,6 @@ package automata
 
 import org.scalactic.source.Position
 import org.scalatest.funspec.AnyFunSpec
-import java.util.regex.MatchResult
 import scala.collection.immutable.ListMap
 import java.lang.{StringBuilder => JavaStringBuilder}
 
@@ -26,26 +25,33 @@ class RegexSpec extends AnyFunSpec {
           .toString
 
         it(if (testName.isEmpty) "<empty>" else testName) {
-          val matched: MatchResult = p.captureMatch(input)
-          val matchedLookingAt: MatchResult = p.captureLookingAt(input)
+          val matcher = p.matcher(input)
+          val matched = matcher.matches()
 
           expectedOutput match {
             case None =>
-              assert(matched == null, "captureMatch should return a null match")
+              assert(!matched, "matches should not find a match")
 
             case Some(groups) =>
-              assert(matched != null, "captureMatch should return a non-null match")
-              assert(matchedLookingAt != null, "captureLookingAt should return a non-null match")
-              assert(expectedGroupCount == matched.groupCount, "count of capture groups in pattern")
+              assert(matched, "matches should find a match")
+              assert(expectedGroupCount == matcher.groupCount, "count of capture groups in pattern")
 
               val patchedGroups = (0, input.length, input) +: groups
-              assert(groups.length == matched.groupCount)
+              assert(groups.length == matcher.groupCount)
               for (i <- 0 until groups.length) {
                 val (expectedStart, expectedEnd, expectedCapture) = patchedGroups(i)
-                assert(matched.start(i) == expectedStart, s"start index of capture group $i")
-                assert(matched.end(i) == expectedEnd, s"end index of capture group $i")
-                assert(matched.group(i) == expectedCapture, s"value of capture group $i")
+                assert(matcher.start(i) == expectedStart, s"start index of capture group $i")
+                assert(matcher.end(i) == expectedEnd, s"end index of capture group $i")
+                assert(matcher.group(i) == expectedCapture, s"value of capture group $i")
               }
+
+              // Whenever there is a full match, a `lookingAt` match can also be found
+              matcher.reset()
+              assert(matcher.lookingAt(), "lookingAt should find a match")
+
+              // Whenever there is a full match, a `find` match can also be found
+              matcher.reset()
+              assert(matcher.find(), "find should find a match")
           }
         }
       }

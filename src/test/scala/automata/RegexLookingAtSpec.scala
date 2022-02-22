@@ -2,7 +2,6 @@ package automata
 
 import org.scalactic.source.Position
 import org.scalatest.funspec.AnyFunSpec
-import java.util.regex.MatchResult
 import scala.collection.immutable.ListMap
 import java.lang.{StringBuilder => JavaStringBuilder}
 
@@ -26,23 +25,28 @@ class RegexLookingAtSpec extends AnyFunSpec {
           .toString
 
         it(if (testName.isEmpty) "<empty>" else testName) {
-          val matched: MatchResult = p.captureLookingAt(input)
+          val matcher = p.matcher(input)
+          val matched = matcher.lookingAt()
 
           expectedOutput match {
             case None =>
-              assert(matched == null, "captureMatch should return a null match")
+              assert(!matched, "lookingAt should not find a match")
 
             case Some(groups) =>
-              assert(matched != null, "captureMatch should return a non-null match")
-              assert(expectedGroupCount == matched.groupCount, "count of capture groups in pattern")
+              assert(matched, "lookingAt should find a match")
+              assert(expectedGroupCount == matcher.groupCount, "count of capture groups in pattern")
 
-              assert(groups.length - 1 == matched.groupCount)
+              assert(groups.length - 1 == matcher.groupCount)
               for (i <- 0 until groups.length) {
                 val (expectedStart, expectedEnd, expectedCapture) = groups(i)
-                assert(matched.start(i) == expectedStart, s"start index of capture group $i")
-                assert(matched.end(i) == expectedEnd, s"end index of capture group $i")
-                assert(matched.group(i) == expectedCapture, s"value of capture group $i")
+                assert(matcher.start(i) == expectedStart, s"start index of capture group $i")
+                assert(matcher.end(i) == expectedEnd, s"end index of capture group $i")
+                assert(matcher.group(i) == expectedCapture, s"value of capture group $i")
               }
+
+              // Whenever there is a `lookingAt` match, a `find` match can also be found
+              matcher.reset()
+              assert(matcher.find(), "find should find a match")
           }
         }
       }

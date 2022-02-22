@@ -6,7 +6,7 @@ import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
 /**
- * Immutable match result.
+ * Array-backed match result.
  *
  * This is designed to be minimal: it includes only a reference to the initial
  * source text and an array of the starts and ends of capture groups.
@@ -19,7 +19,7 @@ public class ArrayMatchResult implements MatchResult {
    * This is not defensively copied on construction, so it will reflect updates
    * that occur after the match result is constructed.
    */
-  public final CharSequence sourceText;
+  protected final CharSequence input;
 
   /**
    * Offsets of start/end groups in the source text.
@@ -33,22 +33,26 @@ public class ArrayMatchResult implements MatchResult {
    * There is always at least one start and end offset (representing where the
    * pattern started and ended matching).
    */
-  private final int[] offsets;
+  protected final int[] groups;
 
   /**
    * Count of capture groups in the pattern.
    */
-  private final int groupCount;
+  protected final int groupCount;
 
-  public ArrayMatchResult(CharSequence sourceText, int[] offsets) {
-    final int offsetsLength = offsets.length;
-    if ((offsetsLength & 1) != 0 || offsetsLength < 2) {
-      throw new IllegalArgumentException("Offsets array must be even length and non-empty");
+  ArrayMatchResult(CharSequence input, int[] groups, int groupCount) {
+    this.input = input;
+    this.groups = groups;
+    this.groupCount = groupCount;
+  }
+
+  public ArrayMatchResult(CharSequence input, int[] groups) {
+    this(input, groups, (groups.length >> 1) - 1);
+
+    final int groupsLength = groups.length;
+    if ((groupsLength & 1) != 0 || groupsLength < 2) {
+      throw new IllegalArgumentException("Group offsets array must be even length and non-empty");
     }
-
-    this.sourceText = sourceText;
-    this.offsets = offsets;
-    this.groupCount = (offsetsLength >> 1) - 1;
   }
 
   /**
@@ -67,17 +71,17 @@ public class ArrayMatchResult implements MatchResult {
 
   @Override
   public int start() {
-    return offsets[0];
+    return groups[0];
   }
 
   @Override
   public int end() {
-    return offsets[1];
+    return groups[1];
   }
 
   @Override
   public String group() {
-    return sourceText.subSequence(start(), end()).toString();
+    return input.subSequence(start(), end()).toString();
   }
 
   @Override
@@ -98,18 +102,18 @@ public class ArrayMatchResult implements MatchResult {
     return groupUnchecked(groupIndex);
   }
 
-  private int startUnchecked(int groupIndex) {
-    return offsets[groupIndex << 1];
+  final protected int startUnchecked(int groupIndex) {
+    return groups[groupIndex << 1];
   }
 
-  private int endUnchecked(int groupIndex) {
-    return offsets[groupIndex << 1 | 1];
+  final protected int endUnchecked(int groupIndex) {
+    return groups[groupIndex << 1 | 1];
   }
 
-  private String groupUnchecked(int groupIndex) {
+  final protected String groupUnchecked(int groupIndex) {
     int start = startUnchecked(groupIndex);
     int end = endUnchecked(groupIndex);
-    return (start | end) < 0 ? null : sourceText.subSequence(start, end).toString();
+    return (start | end) < 0 ? null : input.subSequence(start, end).toString();
   }
 
   /**
@@ -119,6 +123,13 @@ public class ArrayMatchResult implements MatchResult {
     return IntStream
       .rangeClosed(0, groupCount)
       .mapToObj(this::groupUnchecked);
+  }
+
+  /**
+   * Make an immutable snapshot of the match result.
+   */
+  public ArrayMatchResult toMatchResult() {
+    return new ArrayMatchResult(input.toString(), groups.clone());
   }
 }
 

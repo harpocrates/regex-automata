@@ -56,8 +56,8 @@ class PhoneNumbersBench {
   def automataRegexCheck(b: Blackhole): Unit = {
     var i = 0
     while (i < testStrings.length) {
-      val m = compiledAutomataNoGroups.captureMatch(testStrings(i))
-      b.consume(m != null)
+      val m = compiledAutomataNoGroups.matcher(testStrings(i))
+      b.consume(m.matches())
 
       i += 1
     }
@@ -86,7 +86,8 @@ class PhoneNumbersBench {
   def automataRegexMatch(b: Blackhole): Unit = {
     var i = 0
     while (i < testStrings.length) {
-      val m = compiledAutomata.captureMatch(testStrings(i))
+      val m = compiledJava.matcher(testStrings(i))
+      m.matches()
 
       var j = 0
       val matchCount = m.groupCount()

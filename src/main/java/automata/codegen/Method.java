@@ -1,6 +1,7 @@
 package automata.codegen;
 
 import automata.ArrayMatchResult;
+import automata.DfaMatcher;
 import automata.DfaPattern;
 import java.lang.invoke.MethodType;
 import java.util.Arrays;
@@ -25,6 +26,7 @@ final record Method(
 
   // Class name constants
   public static final String DFAPATTERN_CLASS_NAME = Type.getInternalName(DfaPattern.class);
+  public static final String DFAMATCHER_CLASS_NAME = Type.getInternalName(DfaMatcher.class);
   public static final String OBJECT_CLASS_NAME = Type.getInternalName(Object.class);
   public static final String ARRAYMATCHRESULT_CLASS_NAME = Type.getInternalName(ArrayMatchResult.class);
   public static final String SYSTEM_CLASS_NAME = Type.getInternalName(System.class);
@@ -38,44 +40,64 @@ final record Method(
     MethodType.methodType(void.class),
     Opcodes.INVOKESPECIAL
   );
+  public static final Method DFAMATCHERINIT_M = new Method(
+    "<init>",
+    MethodType.methodType(void.class, DfaPattern.class, CharSequence.class, int.class),
+    Opcodes.INVOKESPECIAL
+  );
+  public static final Method COMPILEDDFAMATCHERINIT_M = new Method(
+    "<init>",
+    MethodType.methodType(void.class, DfaPattern.class, CharSequence.class),
+    Opcodes.INVOKESPECIAL
+  );
   public static final Method PATTERN_M = new Method(
     "pattern",
     MethodType.methodType(String.class),
-    Opcodes.INVOKEINTERFACE
+    Opcodes.INVOKEVIRTUAL
   );
   public static final Method GROUPCOUNT_M = new Method(
     "groupCount",
     MethodType.methodType(int.class),
-    Opcodes.INVOKEINTERFACE
+    Opcodes.INVOKEVIRTUAL
   );
-  public static final Method CAPTUREMATCH_M = new Method(
-    "captureMatch",
-    MethodType.methodType(ArrayMatchResult.class, CharSequence.class, int.class, int.class),
-    Opcodes.INVOKEINTERFACE
+  public static final Method MATCHES_M = new Method(
+    "matches",
+    MethodType.methodType(boolean.class),
+    Opcodes.INVOKEVIRTUAL
   );
-  public static final Method CAPTURELOOKINGAT_M = new Method(
-    "captureLookingAt",
-    MethodType.methodType(ArrayMatchResult.class, CharSequence.class, int.class, int.class),
-    Opcodes.INVOKEINTERFACE
+  public static final Method LOOKINGAT_M = new Method(
+    "lookingAt",
+    MethodType.methodType(boolean.class),
+    Opcodes.INVOKEVIRTUAL
   );
-  public static final Method CAPTUREFIND_M = new Method(
-    "captureFind",
-    MethodType.methodType(ArrayMatchResult.class, CharSequence.class, int.class, int.class),
-    Opcodes.INVOKEINTERFACE
+  public static final Method FIND_M = new Method(
+    "find",
+    MethodType.methodType(boolean.class),
+    Opcodes.INVOKEVIRTUAL
   );
-  public static final Method CAPTUREMATCHSTATIC_M = new Method(
-    "captureMatchStatic",
-    MethodType.methodType(ArrayMatchResult.class, CharSequence.class, int.class, int.class),
+  public static final Method PREMATCHUPDATE_M = new Method(
+    "preMatchUpdate",
+    MethodType.methodType(void.class),
+    Opcodes.INVOKEVIRTUAL
+  );
+  public static final Method POSTMATCHUPDATE_M = new Method(
+    "postMatchUpdate",
+    MethodType.methodType(boolean.class, boolean.class),
+    Opcodes.INVOKEVIRTUAL
+  );
+  public static final Method MATCHESSTATIC_M = new Method(
+    "matchesStatic",
+    MethodType.methodType(boolean.class, CharSequence.class, int.class, int.class, int[].class),
     Opcodes.INVOKESTATIC
   );
-  public static final Method CAPTURELOOKINGATSTATIC_M = new Method(
-    "captureLookingAtStatic",
-    MethodType.methodType(ArrayMatchResult.class, CharSequence.class, int.class, int.class),
+  public static final Method LOOKINGATSTATIC_M = new Method(
+    "lookingAtStatic",
+    MethodType.methodType(boolean.class, CharSequence.class, int.class, int.class, int[].class),
     Opcodes.INVOKESTATIC
   );
-  public static final Method CAPTUREFINDSTATIC_M = new Method(
-    "captureFindStatic",
-    MethodType.methodType(ArrayMatchResult.class, CharSequence.class, int.class, int.class),
+  public static final Method FINDSTATIC_M = new Method(
+    "findStatic",
+    MethodType.methodType(boolean.class, CharSequence.class, int.class, int.class, int[].class),
     Opcodes.INVOKESTATIC
   );
   public static final Method TOSTRING_M = new Method(

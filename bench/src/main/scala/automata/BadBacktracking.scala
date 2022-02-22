@@ -38,8 +38,8 @@ class BadBacktracking {
   def automataRegex(b: Blackhole): Unit = {
     var i = 0
     while (i < n) {
-      val m = compiledAutomata.captureMatch(shouldntMatch(i))
-      b.consume(m)
+      val m = compiledAutomata.matcher(shouldntMatch(i))
+      b.consume(m.matches())
       i += 1
     }
   }

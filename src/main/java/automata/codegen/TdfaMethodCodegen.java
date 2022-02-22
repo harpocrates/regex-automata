@@ -80,7 +80,7 @@ class TdfaMethodCodegen extends BytecodeHelpers {
   private final int maxOffsetLocal;
 
   /**
-   * Offset for local of type {@code int[]} corresponding to the group
+   * Offset for argument of type {@code int[]} corresponding to the group
    * variables being tracked.
    */
   private final int groupsLocal;
@@ -232,18 +232,8 @@ class TdfaMethodCodegen extends BytecodeHelpers {
    */
   private void initializeLocals() {
 
-    // Groups local variable
-    visitConstantInt(2 * dfa.groupCount());
-    mv.visitIntInsn(Opcodes.NEWARRAY, Opcodes.T_INT);
-
-    // Only fill the array with `-1` if at least one group marker class is avoidable
-    if (dfa.groupMarkers.classes().stream().anyMatch(c -> !c.unavoidable)) {
-      mv.visitInsn(Opcodes.DUP);
-      mv.visitInsn(Opcodes.ICONST_M1);
-      Method.FILLINT_M.invokeMethod(mv, Method.ARRAYS_CLASS_NAME);
-    }
-
-    // Fill in group markers whose position is anchored on the start/end offsets
+    // Fill in group markers whose position is anchored on the start/end offsets (TODO: do this at end?)
+    mv.visitVarInsn(Opcodes.ALOAD, groupsLocal);
     dfa.groupMarkers.startClass().ifPresent((GroupMarkers.FixedClass startClass) -> {
       if (!fixedClasses.remove(startClass)) {
         return;
@@ -300,7 +290,7 @@ class TdfaMethodCodegen extends BytecodeHelpers {
         mv.visitInsn(Opcodes.IASTORE);
       }
     });
-    mv.visitVarInsn(Opcodes.ASTORE, groupsLocal);
+    mv.visitInsn(Opcodes.POP);
 
     // Temporary `char` variable
     mv.visitInsn(Opcodes.ICONST_0);
@@ -376,18 +366,8 @@ class TdfaMethodCodegen extends BytecodeHelpers {
     }
 
     // Construct and return the final match result
-    mv.visitTypeInsn(Opcodes.NEW, Method.ARRAYMATCHRESULT_CLASS_NAME);
-    mv.visitInsn(Opcodes.DUP);
-    mv.visitVarInsn(Opcodes.ALOAD, inputLocal);
-    mv.visitVarInsn(Opcodes.ALOAD, groupsLocal);
-    mv.visitMethodInsn(
-      Opcodes.INVOKESPECIAL,
-      Method.ARRAYMATCHRESULT_CLASS_NAME,
-      "<init>",
-      "(Ljava/lang/CharSequence;[I)V",
-      false
-    );
-    mv.visitInsn(Opcodes.ARETURN);
+    mv.visitInsn(Opcodes.ICONST_1);
+    mv.visitInsn(Opcodes.IRETURN);
   }
 
   /**
@@ -398,12 +378,12 @@ class TdfaMethodCodegen extends BytecodeHelpers {
 
     // Print out the final output
     if (printDebugInfo) {
-      visitPrintErrConstantString("[TDFA] exiting run (unsuccessful): null", true);
+      visitPrintErrConstantString("[TDFA] exiting run (unsuccessful)", true);
     }
 
     // Construct and return the final match (non-)result
-    mv.visitInsn(Opcodes.ACONST_NULL);
-    mv.visitInsn(Opcodes.ARETURN);
+    mv.visitInsn(Opcodes.ICONST_0);
+    mv.visitInsn(Opcodes.IRETURN);
   }
 
   /**
