@@ -25,7 +25,7 @@ object RegexStripGroups extends RegexStripGroups {
 
   /** Strip explicit capture groups from a pattern and re-print it */
   def stripCaptureGroups(pattern: String): String = RegexParser
-    .parse(RegexStripGroups, pattern, false, false)
+    .parse(RegexStripGroups, pattern, 0, false, false)
     .acceptRegex(RegexPrinter)
     .rendered
 }

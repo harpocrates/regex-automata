@@ -92,11 +92,13 @@ final public class Tnfa implements DotGraph<Integer, TnfaTransition> {
    * wrapping group starts _after_ the wildcard prefix.
    *
    * @param pattern regular expression to parse
+   * @param flags bitmask of match flags
    * @param wrappingGroup add an implicit capture group around the expression
    * @param wildcardPrefix accept any prefix before the expression
    */
   public static Tnfa parse(
     String pattern,
+    int flags,
     boolean wrappingGroup,
     boolean wildcardPrefix
   ) throws PatternSyntaxException {
@@ -104,6 +106,7 @@ final public class Tnfa implements DotGraph<Integer, TnfaTransition> {
     final var visited = RegexParser.parse(
       builder,
       pattern,
+      flags,
       wrappingGroup,
       wildcardPrefix
     );

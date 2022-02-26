@@ -163,7 +163,8 @@ object Re extends ReBuilder {
       visitor.visitUnicodeScript(script)
   }
 
-  def parse(src: String): Re = RegexParser.parse(Re, src, false, false)
+  def parse(src: String, flags: Int = 0): Re =
+    RegexParser.parse(Re, src, flags, false, false)
 }
 
 trait ReBuilder extends RegexVisitor[Re, CharClass] {

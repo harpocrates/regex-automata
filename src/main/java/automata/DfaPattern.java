@@ -110,14 +110,15 @@ abstract public class DfaPattern {
 
     public CompiledDfaPattern(
       String pattern,
+      int flags,
       boolean printDebugInfo,
       boolean optimized
     ) throws PatternSyntaxException, IllegalAccessException, NoSuchMethodException {
       super(pattern);
 
       // NFAs
-      final Tnfa nfaWithoutWildcard = Tnfa.parse(pattern, true, false);
-      final Tnfa nfaWithWildcard = Tnfa.parse(pattern, true, true);
+      final Tnfa nfaWithoutWildcard = Tnfa.parse(pattern, flags, true, false);
+      final Tnfa nfaWithWildcard = Tnfa.parse(pattern, flags, true, true);
 
       // DFAs
       final Tdfa matchesDfa = Tdfa.fromTnfa(nfaWithoutWildcard, MatchMode.FULL, optimized);
@@ -153,7 +154,7 @@ abstract public class DfaPattern {
     public CompiledDfaPattern(
       String pattern
     ) throws PatternSyntaxException, IllegalAccessException, NoSuchMethodException {
-      this(pattern, false, true);
+      this(pattern, 0, false, true);
     }
   }
 
@@ -223,14 +224,15 @@ abstract public class DfaPattern {
 
     public InterpretableDfaPattern(
       String pattern,
+      int flags,
       boolean printDebugInfo,
       boolean optimized
     ) throws PatternSyntaxException {
       super(pattern);
       this.printDebugInfo = printDebugInfo;
 
-      final Tnfa nfaWithoutWildcard = Tnfa.parse(pattern, true, false);
-      final Tnfa nfaWithWildcard = Tnfa.parse(pattern, true, true);
+      final Tnfa nfaWithoutWildcard = Tnfa.parse(pattern, flags, true, false);
+      final Tnfa nfaWithWildcard = Tnfa.parse(pattern, flags, true, true);
 
       this.matchesDfa = Tdfa.fromTnfa(nfaWithoutWildcard, MatchMode.FULL, optimized);
       this.lookingAtDfa = Tdfa.fromTnfa(nfaWithoutWildcard, MatchMode.PREFIX, optimized);
@@ -241,7 +243,7 @@ abstract public class DfaPattern {
     }
 
     public InterpretableDfaPattern(String pattern) throws PatternSyntaxException {
-      this(pattern, false, true);
+      this(pattern, 0, false, true);
     }
   }
 }

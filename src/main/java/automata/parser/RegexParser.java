@@ -1,6 +1,7 @@
 package automata.parser;
 
 import java.util.OptionalInt;
+import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
 
 /**
@@ -25,6 +26,9 @@ public final class RegexParser<A, C> {
   private int position = 0;
   private int groupCount = 0;
 
+  // Bit-flag of flags
+  private int regexFlags = 0;
+
   // Single possibly stashed codepoint - see `parseCharacter`
   private int stashedCodePoint = 0;
 
@@ -36,6 +40,7 @@ public final class RegexParser<A, C> {
    *
    * @param visitor regex visitor used to accept bottom-up parsing progress
    * @param input regular expression pattern
+   * @param flags bitmask of match flags
    * @param wrappingGroup is there an implicit outer group wrapping the regex
    * @param wildcardPrefix accept any prefix (lazily) before the regex
    * @return parsed regular expression
@@ -43,10 +48,11 @@ public final class RegexParser<A, C> {
   public static<B, D> B parse(
     RegexVisitor<B, D> visitor,
     String input,
+    int flags,
     boolean wrappingGroup,
     boolean wildcardPrefix
   ) throws PatternSyntaxException {
-    final var parser = new RegexParser<B, D>(visitor, input);
+    final var parser = new RegexParser<B, D>(visitor, input, flags);
     if (wrappingGroup) {
       parser.groupCount++;
     }
@@ -80,14 +86,19 @@ public final class RegexParser<A, C> {
     return parsed;
   }
 
-  private RegexParser(RegexVisitor<A, C> visitor, String input) {
+  private RegexParser(RegexVisitor<A, C> visitor, String input, int regexFlags) {
     this.visitor = visitor;
     this.input = input;
+    this.regexFlags = regexFlags;
     this.length = input.length();
   }
 
   private PatternSyntaxException error(String message) {
     return new PatternSyntaxException(message, input, position);
+  }
+
+  private boolean checkFlag(int flag) {
+    return (regexFlags & flag) != 0;
   }
 
   /**
@@ -113,7 +124,7 @@ public final class RegexParser<A, C> {
     // Keep parsing concatenations until a lower priority construct is encountered
     while (position < length) {
       final char c = input.charAt(position);
-      if (c == ')' || c == '|') break;
+      if ((c == ')' || c == '|') && !checkFlag(Pattern.LITERAL)) break;
       A concatRhs = parseQuantified();
       if (concatLhs == null) {
         concatLhs = concatRhs;
@@ -220,6 +231,11 @@ public final class RegexParser<A, C> {
    */
   @SuppressWarnings("fallthrough")
   private A parseGroup() throws PatternSyntaxException {
+
+    if (checkFlag(Pattern.LITERAL)) {
+      return parseLiteralSequence();
+    }
+
     switch (input.charAt(position)) {
       case '(':
         break;
@@ -234,10 +250,19 @@ public final class RegexParser<A, C> {
 
       case '\\':
         if (position + 1 < length) {
-          final var boundary = Boundary.CHARACTERS.get(input.charAt(position + 1));
+          final char escaped = input.charAt(position + 1);
+
+          // Boundaries
+          final var boundary = Boundary.CHARACTERS.get(escaped);
           if (boundary != null) {
             position += 2;
             return visitor.visitBoundary(boundary);
+          }
+
+          // Literal sequences
+          if (escaped == 'Q') {
+            position += 2;
+            return parseLiteralSequence();
           }
         }
 
@@ -249,20 +274,49 @@ public final class RegexParser<A, C> {
     final int openParenPosition = position;
     position++;
 
+    // Flags to set back after the group is parsed
+    int stashedFlags = this.regexFlags;
+
     // Detect `?:` non capture groups
     boolean capture = true;
+
     if (position < length && input.charAt(position) == '?') {
       position++;
 
       // We don't error if we reach the end because we'll anyways error on an unclosed group below
       if (position < length) {
-        if (input.charAt(position) == ':') {
-          position++;
-          capture = false;
-        } else {
-          throw error(
-            "Only non-capturing groups are supported (lookaheads and lookbehinds aren't)"
-          );
+        switch (input.charAt(position)) {
+          case '=':
+          case '!':
+          case '<':
+          case '>':
+            throw error(
+              "Only non-capturing groups are supported (lookaheads and lookbehinds aren't)"
+            );
+
+          default:
+            capture = false;
+
+            // Parse out flags
+            int flags = parseRegexFlags();
+            if (position < length && input.charAt(position) == '-') {
+              flags &= ~parseRegexFlags();
+            }
+
+            if (position < length) {
+              final char afterFlags = input.charAt(position);
+              if (afterFlags == ':') {
+                position++;
+                this.regexFlags = flags;
+              } else if (afterFlags == ')') {
+                this.regexFlags = flags;
+                stashedFlags = flags; // Don't reset flags back
+              } else {
+                throw error(
+                  "Invalid non-capturing group (expected colon or close paren for group opened at " + openParenPosition + ")"
+                );
+              }
+            }
         }
       }
     }
@@ -274,13 +328,46 @@ public final class RegexParser<A, C> {
     final A union = parseAlternation();
     if (!(position < length && input.charAt(position) == ')')) {
       throw error(
-        "Unclosed group (expected close paren for group opened at " + openParenPosition
+        "Unclosed group (expected close paren for group opened at " + openParenPosition + ")"
       );
     } else {
       position++;
     }
 
+    // Reset flags for non-capturing groups
+    if (!capture) {
+      this.regexFlags = stashedFlags;
+    }
+
     return visitor.visitGroup(union, groupIdx);
+  }
+
+  /**
+   * Parse a literal sequence which can be terminated only with {@code \\E}.
+   */
+  private A parseLiteralSequence() {
+    final String END_LITERAL = "\\E";
+
+    // Figure out where the literal sequence ends
+    final String literal;
+    final int endIndex = input.indexOf(END_LITERAL, position);
+    if (endIndex == -1) {
+      literal = input.substring(position);
+      position = input.length();
+    } else {
+      literal = input.substring(position, endIndex);
+      position = endIndex + END_LITERAL.length();
+    }
+
+    // Make sure the literal flag is no longer set
+    this.regexFlags = this.regexFlags & ~Pattern.LITERAL;
+
+    return literal
+      .codePoints()
+      .<C>mapToObj(visitor::visitCharacter)
+      .<A>map(visitor::visitCharacterClass)
+      .<A>reduce(visitor::visitConcatenation)
+      .orElseGet(visitor::visitEpsilon);
   }
 
   /**
@@ -765,4 +852,54 @@ public final class RegexParser<A, C> {
     return (int) integer;
   }
 
+  /**
+   * Parse (regex) flags from the input.
+   */
+  private int parseRegexFlags() {
+    int flags = 0;
+
+    flag_parsing:
+    while (position < length) {
+      switch (input.charAt(position)) {
+        case 'i':
+          flags |= Pattern.CASE_INSENSITIVE;
+          break;
+
+        case 'm':
+          flags |= Pattern.MULTILINE;
+          break;
+
+        case 's':
+          flags |= Pattern.DOTALL;
+          break;
+
+        case 'd':
+          flags |= Pattern.UNIX_LINES;
+          break;
+
+        case 'u':
+          flags |= Pattern.UNICODE_CASE;
+          break;
+
+        case 'c':
+          flags |= Pattern.CANON_EQ;
+          break;
+
+        case 'x':
+          flags |= Pattern.COMMENTS;
+          break;
+
+        case 'U':
+          flags |= Pattern.UNICODE_CHARACTER_CLASS;
+          flags |= Pattern.UNICODE_CASE;
+          break;
+
+        default:
+          break flag_parsing;
+      }
+      position++;
+    }
+
+    return flags;
+  }
 }

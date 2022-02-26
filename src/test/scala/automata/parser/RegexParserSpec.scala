@@ -361,6 +361,16 @@ class RegexParserSpec extends AnyFunSpec with ScalaCheckDrivenPropertyChecks wit
     }
   }
 
+  describe("literal sequences") {
+    testParse(
+      "\\Qa*\\E*",
+      Re.Kleene(
+        Re.Concat(Re.Character('a'), Re.Character('*')),
+        isLazy = false
+      )
+    )
+  }
+
   describe("arbitrary tests") {
     it("regular expressions should round-trip through pretty-printing") {
       forAll("regex", MinSuccessful(1024), SizeRange(512)) { (regex: Re) =>
