@@ -45,13 +45,15 @@ public class CodePointSetVisitor implements CharClassVisitor<IntRangeSet> {
   }
 
   @Override
-  public IntRangeSet visitUnicodeScript(Character.UnicodeScript script) {
-    return CodePoints.scriptCodePoints(script);
+  public IntRangeSet visitUnicodeScript(Character.UnicodeScript script, boolean negated) {
+    final var scriptCodePoints = CodePoints.scriptCodePoints(script);
+    return negated ? visitNegated(scriptCodePoints) : scriptCodePoints;
   }
 
   @Override
-  public IntRangeSet visitUnicodeBlock(Character.UnicodeBlock block) {
-    return CodePoints.blockCodePoints(block);
+  public IntRangeSet visitUnicodeBlock(Character.UnicodeBlock block, boolean negated) {
+    final var blockCodePoints = CodePoints.blockCodePoints(block);
+    return negated ? visitNegated(blockCodePoints) : blockCodePoints;
   }
 }
 

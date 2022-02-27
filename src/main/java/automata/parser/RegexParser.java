@@ -97,6 +97,12 @@ public final class RegexParser<A, C> {
     return new PatternSyntaxException(message, input, position);
   }
 
+  /**
+   * Check if a certain regex flag is enabled.
+   *
+   * @param flag bit mask of the flag to check
+   * @return whether the flag is enabled
+   */
   private boolean checkFlag(int flag) {
     return (regexFlags & flag) != 0;
   }
@@ -641,6 +647,7 @@ public final class RegexParser<A, C> {
 
           // Properties
           case 'p':
+          case 'P':
             position++;
 
             // Name of the property
@@ -659,28 +666,7 @@ public final class RegexParser<A, C> {
               propertyName = input.substring(startProperty + 1, position - 1);
             }
 
-            // Property
-            if (propertyName.startsWith("In")) {
-              final var blockName = propertyName.substring(2);
-              final Character.UnicodeBlock block;
-              try {
-                block = Character.UnicodeBlock.forName(blockName);
-              } catch (IllegalArgumentException err) {
-                throw error("Unknown unicode block " + blockName);
-              }
-              return visitor.visitUnicodeBlock(block);
-            } else if (propertyName.startsWith("Is")) {
-              final var scriptName = propertyName.substring(2);
-              final Character.UnicodeScript script;
-              try {
-                script = Character.UnicodeScript.forName(scriptName);
-              } catch (IllegalArgumentException err) {
-                throw error("Unknown unicode script " + scriptName);
-              }
-              return visitor.visitUnicodeScript(script);
-            } else {
-              throw error("Unknown property " + propertyName);
-            }
+            return parsePropertyClass(propertyName, c == 'P');
 
           // Back-references
           case '1':
@@ -724,6 +710,77 @@ public final class RegexParser<A, C> {
         stashedCodePoint = codePoint;
         return null;
     }
+  }
+
+  /**
+   * Parse a {@code \\p} or {@code \\P} property class.
+   *
+   * @param name name following the property class escape
+   * @param negated whether the class is negated
+   */
+  private C parsePropertyClass(String propertyName, boolean negated) {
+    final int equalsIndex = propertyName.indexOf('=');
+
+    // `\p{key=value}`
+    if (equalsIndex != -1) {
+      final String key = propertyName.substring(0, equalsIndex);
+      final String value = propertyName.substring(equalsIndex + 1);
+
+      switch (key.toLowerCase()) {
+        case "blk":
+        case "block":
+          try {
+            final var block = Character.UnicodeBlock.forName(value);
+            return visitor.visitUnicodeBlock(block, negated);
+          } catch (IllegalArgumentException err) {
+            throw error("Unknown unicode block " + value);
+          }
+
+        case "sc":
+        case "script":
+          try {
+            final var script = Character.UnicodeScript.forName(value);
+            return visitor.visitUnicodeScript(script, negated);
+          } catch (IllegalArgumentException err) {
+            throw error("Unknown unicode script " + value);
+          }
+
+        case "gc":
+        case "general_category":
+          throw error("Unimplemented general category");
+
+        default:
+          throw error("Unknown property class key " + key);
+      }
+    }
+
+    // Block
+    if (propertyName.startsWith("In")) {
+      final var blockName = propertyName.substring(2);
+      final Character.UnicodeBlock block;
+      try {
+        block = Character.UnicodeBlock.forName(blockName);
+      } catch (IllegalArgumentException err) {
+        throw error("Unknown unicode block " + blockName);
+      }
+      return visitor.visitUnicodeBlock(block, negated);
+    }
+
+    // Script or property
+    if (propertyName.startsWith("Is")) {
+      final var scriptName = propertyName.substring(2);
+      final Character.UnicodeScript script;
+      try {
+        script = Character.UnicodeScript.forName(scriptName);
+      } catch (IllegalArgumentException err) {
+        throw error("Unknown unicode script " + scriptName);
+      }
+      return visitor.visitUnicodeScript(script, negated);
+    }
+
+
+    // Property
+    throw error("Unknown property " + propertyName);
   }
 
   /**

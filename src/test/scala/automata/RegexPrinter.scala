@@ -201,15 +201,15 @@ object RegexPrinter extends RegexVisitor[RenderedWithPriority, RenderedWithPrior
       priority = Priority.Top
     )
 
-  override def visitUnicodeBlock(block: UnicodeBlock) =
+  override def visitUnicodeBlock(block: UnicodeBlock, negated: Boolean) =
     RenderedWithPriority(
-      rendered = s"\\p{In$block}",
+      rendered = s"\\${if (negated) "P" else "p"}{In$block}",
       priority = Priority.Top
     )
 
-  override def visitUnicodeScript(script: UnicodeScript) =
+  override def visitUnicodeScript(script: UnicodeScript, negated: Boolean) =
     RenderedWithPriority(
-      rendered = s"\\p{Is$script}",
+      rendered = s"\\${if (negated) "P" else "p"}{Is$script}",
       priority = Priority.Top
     )
 }

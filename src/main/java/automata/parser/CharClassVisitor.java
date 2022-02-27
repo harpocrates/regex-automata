@@ -64,14 +64,16 @@ public interface CharClassVisitor<C> {
    * Matches characters inside a specified unicode block.
    *
    * @param block unicode block
+   * @param negated match characters outside the block
    */
-  C visitUnicodeBlock(Character.UnicodeBlock block);
+  C visitUnicodeBlock(Character.UnicodeBlock block, boolean negated);
 
   /**
    * Matches characters inside a specified unicode script.
    *
    * @param script unicode script
+   * @param negated match characters outside the script
    */
-  C visitUnicodeScript(Character.UnicodeScript script);
+  C visitUnicodeScript(Character.UnicodeScript script, boolean negated);
 }
 

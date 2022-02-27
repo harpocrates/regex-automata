@@ -50,7 +50,7 @@ public final class CodePoints {
   public static IntRangeSet scriptCodePoints(Character.UnicodeScript script) {
     return IntRangeSet.matching(
       UNICODE_RANGE,
-      codePoint -> Character.UnicodeScript.of(codePoint).equals(script)
+      codePoint -> script.equals(Character.UnicodeScript.of(codePoint))
     );
   }
 
@@ -63,7 +63,7 @@ public final class CodePoints {
   public static IntRangeSet blockCodePoints(Character.UnicodeBlock block) {
     return IntRangeSet.matching(
       UNICODE_RANGE,
-      codePoint -> Character.UnicodeBlock.of(codePoint).equals(block)
+      codePoint -> block.equals(Character.UnicodeBlock.of(codePoint))
     );
   }
 

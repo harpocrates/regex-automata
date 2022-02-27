@@ -152,15 +152,21 @@ object Re extends ReBuilder {
   }
 
   /** Unicode block class */
-  final case class UnicodeBlockClass(block: UnicodeBlock) extends CharClass {
+  final case class UnicodeBlockClass(
+    block: UnicodeBlock,
+    negated: Boolean
+  ) extends CharClass {
     override def acceptCharClass[A](visitor: CharClassVisitor[A]): A =
-      visitor.visitUnicodeBlock(block)
+      visitor.visitUnicodeBlock(block, negated)
   }
 
   /** Unicode script class */
-  final case class UnicodeScriptClass(script: UnicodeScript) extends CharClass {
+  final case class UnicodeScriptClass(
+    script: UnicodeScript,
+    negated: Boolean
+  ) extends CharClass {
     override def acceptCharClass[A](visitor: CharClassVisitor[A]): A =
-      visitor.visitUnicodeScript(script)
+      visitor.visitUnicodeScript(script, negated)
   }
 
   def parse(src: String, flags: Int = 0): Re =
@@ -217,9 +223,9 @@ trait ReBuilder extends RegexVisitor[Re, CharClass] {
   override def visitBuiltinClass(cls: JBuiltinClass) =
     Re.BuiltinClass(cls)
 
-  override def visitUnicodeBlock(block: UnicodeBlock) =
-    Re.UnicodeBlockClass(block)
+  override def visitUnicodeBlock(block: UnicodeBlock, negated: Boolean) =
+    Re.UnicodeBlockClass(block, negated)
 
-  override def visitUnicodeScript(script: UnicodeScript) =
-    Re.UnicodeScriptClass(script)
+  override def visitUnicodeScript(script: UnicodeScript, negated: Boolean) =
+    Re.UnicodeScriptClass(script, negated)
 }

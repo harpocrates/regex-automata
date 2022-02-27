@@ -361,6 +361,51 @@ class RegexParserSpec extends AnyFunSpec with ScalaCheckDrivenPropertyChecks wit
     }
   }
 
+  describe("property clases") {
+    describe("scripts") {
+      testParse(
+        "\\p{IsLatin}",
+        Re.UnicodeScriptClass(Character.UnicodeScript.LATIN, negated = false)
+      )
+      testParse(
+        "\\p{sc=Hiragana}",
+        Re.UnicodeScriptClass(Character.UnicodeScript.HIRAGANA, negated = false)
+      )
+      testParse(
+        "\\p{script=Hiragana}",
+        Re.UnicodeScriptClass(Character.UnicodeScript.HIRAGANA, negated = false)
+      )
+    }
+
+    describe("blocks") {
+      testParse(
+        "\\p{InGreek}",
+        Re.UnicodeBlockClass(Character.UnicodeBlock.GREEK, negated = false)
+      )
+
+      testParse(
+        "\\p{blk=Mongolian}",
+        Re.UnicodeBlockClass(Character.UnicodeBlock.MONGOLIAN, negated = false)
+      )
+
+      testParse(
+        "\\p{block=Mongolian}",
+        Re.UnicodeBlockClass(Character.UnicodeBlock.MONGOLIAN, negated = false)
+      )
+    }
+
+   // testParse("\\p{Lu}", Re.Epsilon)
+   // testParse("\\p{IsAlphabetic}", Re.Epsilon)
+   // testParse("\\p{Sc}", Re.Epsilon)
+
+    describe("negated") {
+      testParse(
+        "\\P{InGreek}",
+        Re.UnicodeBlockClass(Character.UnicodeBlock.GREEK, negated = true)
+      )
+    }
+  }
+
   describe("literal sequences") {
     testParse(
       "\\Qa*\\E*",
