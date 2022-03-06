@@ -7,7 +7,7 @@ import java.util.regex.PatternSyntaxException;
 /**
  * Parser for a subset of regular expressions.
  *
- * This is a fairly standard recursive descent parsed. The only more
+ * This is a fairly standard recursive descent parser. The only more
  * interesting bit is that the results are made available through a visitor
  * instead of as an explicit AST type.
  *
@@ -97,6 +97,10 @@ public final class RegexParser<A, C> {
     return new PatternSyntaxException(message, input, position);
   }
 
+  private UnsupportedPatternSyntaxException unsupported(String unsupported) {
+    return new UnsupportedPatternSyntaxException(unsupported, input, position);
+  }
+
   /**
    * Check if certain regex flags are enabled.
    *
@@ -108,29 +112,19 @@ public final class RegexParser<A, C> {
   }
 
   /**
-   * Set which regex flags are enabled.
-   *
-   * @param flags bit mask of the flags to set
-   */
-  private void setFlags(int flags) {
-    regexFlags = flags;
-  }
-
-
-  /**
    * Advance the cursor past any whitespace or comments.
    */
-  private void advancePastComments() {
+  private void skipSpaceAndComments() {
     if (!checkFlags(Pattern.COMMENTS)) return;
     while (position < length) {
       int codePoint = input.codePointAt(position);
-      if (!Character.isWhitespace(codePoint)) {
-        break;
-      }
-      position += Character.charCount(codePoint);
-
       if (codePoint == '#') {
+        position++;
         advancePastComment();
+      } else if (!Character.isWhitespace(codePoint)) {
+        break;
+      } else {
+        position += Character.charCount(codePoint);
       }
     }
   }
@@ -161,7 +155,7 @@ public final class RegexParser<A, C> {
    * @return next character or else -1 if there is none
    */
   int peekChar() {
-    advancePastComments();
+    skipSpaceAndComments();
     return position < length ? input.charAt(position) : -1;
   }
 
@@ -169,7 +163,7 @@ public final class RegexParser<A, C> {
    * Skip over the next character.
    */
   void skipChar() {
-    advancePastComments();
+    skipSpaceAndComments();
     position++;
   }
 
@@ -179,7 +173,7 @@ public final class RegexParser<A, C> {
    * @return next character
    */
   char nextChar() {
-    advancePastComments();
+    skipSpaceAndComments();
     return input.charAt(position++);
   }
 
@@ -190,7 +184,7 @@ public final class RegexParser<A, C> {
    * @return whether the character was found
    */
   boolean nextCharIf(char matching) {
-    advancePastComments();
+    skipSpaceAndComments();
     final boolean matches = position < length && input.charAt(position) == matching;
     if (matches) {
       position++;
@@ -285,10 +279,7 @@ public final class RegexParser<A, C> {
       if (nextCharIf('?')) {
         isLazy = true;
       } else if (peekChar() == '+') {
-        throw error(
-          "Possesive quantifiers are not supported (use extra parentheses to express one or " +
-          "more of an already quatifier expression: `(a?)+` instead of `a?+`"
-        );
+        throw unsupported("Possesive quantifiers");
       }
 
       // Visit the quantifier corresponding to the initial character
@@ -379,9 +370,7 @@ public final class RegexParser<A, C> {
         case '!':
         case '<':
         case '>':
-          throw error(
-            "Only non-capturing groups are supported (lookaheads and lookbehinds aren't)"
-          );
+          throw unsupported("Lookaround capture groups");
 
         default:
           capture = false;
@@ -499,7 +488,7 @@ public final class RegexParser<A, C> {
       // Character class
       case '[':
         if (closingClassRange) {
-          throw error("Cannot end class range with '[', position");
+          throw error("Cannot end class range with `[`");
         }
 
         // Track the open paren so we can use it in the error message
@@ -508,7 +497,7 @@ public final class RegexParser<A, C> {
 
         // Is the class negated?
         boolean negated = nextCharIf('^');
-        if (position >= length) {
+        if (peekChar() == -1) {
           throw error(
             "Unclosed character class (expected close to bracket opened at " + openBracketPosition + ")"
           );
@@ -525,12 +514,13 @@ public final class RegexParser<A, C> {
 
       case '\\':
         skipChar();
+
+        // NB: not `nextChar` since `\\ ` or `\\#` are escapes even in comment mode
         if (position >= length) {
           throw error("Pattern may not end with backslash");
         }
-
-        // NB: not `nextChar` since `\\ ` or `\\#` are escapes even in comment mode
         final char c = input.charAt(position);
+
         switch (c) {
           case '\\':
           case '.':
@@ -607,15 +597,16 @@ public final class RegexParser<A, C> {
           case 'c':
             position++;
 
-            final int control = peekChar();
-            if (control == -1) {
-              throw error("Control character letter but got end of regex");
-            } else if ('A' <= control && control <= 'Z') {
-              skipChar();
-              stashedCodePoint = control - 'A' + 112;
+            if (position >= length) {
+              throw error("Expected control character escape but got end of regex");
+            }
+            final char control = input.charAt(position);
+            if (32 <= control && control <= 127) {
+              position++;
+              stashedCodePoint = control ^ 64;
               return null;
             } else {
-              throw error("Control character letter");
+              throw error("Expected control escape letter in printable ASCII range");
             }
 
           // Hexadecimal escape `\xhh` or `\x{h...h}`
@@ -624,7 +615,7 @@ public final class RegexParser<A, C> {
 
             int hexChar = peekChar();
             if (hexChar == -1) {
-              throw error("Hexadecimal or `{` but got end of regex");
+              throw error("Expected hexadecimal escape but got end of regex");
             } else if (hexChar == '{') {
               skipChar();
 
@@ -642,7 +633,7 @@ public final class RegexParser<A, C> {
                   throw error("Hexadecimal escape overflowed max code point");
                 }
               }
-              throw error("Hexadecimal or `}` but got end of regex");
+              throw error("Expected `}` but got end of regex");
             } else {
               codePoint = parseHexadecimalCharacter();
               codePoint = (codePoint << 4) | parseHexadecimalCharacter();
@@ -745,7 +736,7 @@ public final class RegexParser<A, C> {
           case '8':
           case '9':
           case 'k':
-            throw error("Backreferences are not supported");
+            throw unsupported("Backreferences");
 
           // Invalid boundary
           case 'b':
@@ -753,7 +744,7 @@ public final class RegexParser<A, C> {
           case 'A':
           case 'Z':
           case 'z':
-            if (closingClassRange) {
+            if (insideClass) {
               throw error("Cannot use boundary escapes in character class");
             } else {
               throw new IllegalStateException("This should be unreachable");
@@ -799,7 +790,7 @@ public final class RegexParser<A, C> {
             final var block = Character.UnicodeBlock.forName(value);
             return visitor.visitUnicodeBlock(block, negated);
           } catch (IllegalArgumentException err) {
-            throw error("Unknown unicode block " + value);
+            throw error("Unknown unicode block: " + value);
           }
 
         case "sc":
@@ -808,7 +799,7 @@ public final class RegexParser<A, C> {
             final var script = Character.UnicodeScript.forName(value);
             return visitor.visitUnicodeScript(script, negated);
           } catch (IllegalArgumentException err) {
-            throw error("Unknown unicode script " + value);
+            throw error("Unknown unicode script: " + value);
           }
 
         case "gc":
@@ -816,7 +807,7 @@ public final class RegexParser<A, C> {
           throw error("Unimplemented general category");
 
         default:
-          throw error("Unknown property class key " + key);
+          throw error("Unknown property class key: " + key);
       }
     }
 
@@ -827,7 +818,7 @@ public final class RegexParser<A, C> {
       try {
         block = Character.UnicodeBlock.forName(blockName);
       } catch (IllegalArgumentException err) {
-        throw error("Unknown unicode block " + blockName);
+        throw error("Unknown unicode block: " + blockName);
       }
       return visitor.visitUnicodeBlock(block, negated);
     }
@@ -839,7 +830,7 @@ public final class RegexParser<A, C> {
       try {
         script = Character.UnicodeScript.forName(scriptName);
       } catch (IllegalArgumentException err) {
-        throw error("Unknown unicode script " + scriptName);
+        throw error("Unknown unicode script: " + scriptName);
       }
       return visitor.visitUnicodeScript(script, negated);
     }
@@ -1021,7 +1012,6 @@ public final class RegexParser<A, C> {
 
         case 'x':
           flags |= Pattern.COMMENTS;
-          System.out.println("Comments");
           break;
 
         case 'U':

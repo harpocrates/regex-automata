@@ -16,6 +16,17 @@ class IntRangeSetSpec extends AnyFunSpec {
 
   val intervals = List(interval0, interval1, interval2, interval3, interval4, interval5, interval6, interval7)
 
+  it("IntRangeSet.toString should produce readable output") {
+    assert(interval0.toString === "IntRangeSet.of(-2147483648..2147483647)")
+    assert(interval1.toString === "IntRangeSet.of()")
+    assert(interval2.toString === "IntRangeSet.of(531..2166)")
+    assert(interval3.toString === "IntRangeSet.of(0..2166)")
+    assert(interval4.toString === "IntRangeSet.of(531..65535)")
+    assert(interval5.toString === "IntRangeSet.of(-2147483648..-21, 6..29)")
+    assert(interval6.toString === "IntRangeSet.of(-20..5, 30..2147483647)")
+    assert(interval7.toString === "IntRangeSet.of(-2147483648..5, 30..2147483647)")
+  }
+
   describe("IntRangeSet.contains") {
     it("IntRangeSet.FULL should contain any element") {
       assert(IntRangeSet.FULL.contains(Character.MIN_VALUE))

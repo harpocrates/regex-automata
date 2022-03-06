@@ -5,33 +5,20 @@ import org.scalactic.source.Position
 import org.scalatest.funspec.AnyFunSpec
 import org.scalatestplus.scalacheck.ScalaCheckDrivenPropertyChecks
 import scala.jdk.CollectionConverters._
-import java.util.regex.PatternSyntaxException
+import java.util.regex.Pattern
 
 class RegexParserSpec extends AnyFunSpec with ScalaCheckDrivenPropertyChecks with ReGenerator {
 
   private def testParse(
     input: String,
     parsesTo: Re,
-    skip: Boolean = false
+    skip: Boolean = false,
+    flags: Int = 0
   )(implicit
     pos: Position
   ): Unit = {
-    def test = assert(Re.parse(input) === parsesTo, "regex must parse correctly")
+    def test = assert(Re.parse(input, flags) === parsesTo, "regex must parse correctly")
     if (skip) ignore(input)(test) else it(input)(test)
-  }
-
-  private def testParseError(
-    input: String,
-    description: String,
-    index: Int
-  )(implicit
-    pos: Position
-  ): Unit = {
-    it(input) {
-      val err = intercept[PatternSyntaxException](Re.parse(input))
-      assert(err.getDescription === description, "error description must match")
-      assert(err.getIndex === index, "error index must match")
-    }
   }
 
   describe("characters") {
@@ -62,7 +49,15 @@ class RegexParserSpec extends AnyFunSpec with ScalaCheckDrivenPropertyChecks wit
     describe("octal codes") {
       testParse("\\07", Re.Character(7))
       testParse("\\047", Re.Character(39))
+      testParse("\\04a", Re.Concat(Re.Character(4), Re.Character('a')))
       testParse("\\0234", Re.Character(156))
+    }
+
+    describe("control codes") {
+      testParse("\\cA", Re.Character(1))
+      testParse("\\cM", Re.Character('\r'))
+      testParse("\\c@", Re.Character(0))
+      testParse("\\c_", Re.Character(31))
     }
   }
 
@@ -352,6 +347,13 @@ class RegexParserSpec extends AnyFunSpec with ScalaCheckDrivenPropertyChecks wit
           Re.UnionClass(Re.CharacterRange('a', 'z'), Re.Character('k'))
         )
       )
+      testParse(
+        "[a&b]",
+        Re.UnionClass(
+          Re.UnionClass(Re.Character('a'), Re.Character('&')),
+          Re.Character('b')
+        )
+      )
     }
 
     describe("nested") {
@@ -440,17 +442,68 @@ class RegexParserSpec extends AnyFunSpec with ScalaCheckDrivenPropertyChecks wit
         isLazy = false
       )
     )
+
+    // Goes until the end
+    testParse(
+      "a\\Q*",
+      Re.Concat(Re.Character('a'), Re.Character('*'))
+    )
+
+    // Can end literal sequence started with flag
+    testParse(
+      "a*\\E*",
+      Re.Kleene(
+        Re.Concat(Re.Character('a'), Re.Character('*')),
+        isLazy = false
+      ),
+      flags = Pattern.LITERAL
+    )
   }
 
   describe("comment mode") {
-    testParse("(?x)  a  b   ", Re.Concat(Re.Concat(Re.Epsilon, Re.Character('a')), Re.Character('b')))
+    testParse(
+      "(?x)  a  b   ",
+      Re.Concat(Re.Concat(Re.Epsilon, Re.Character('a')), Re.Character('b'))
+    )
+
+    testParse(
+      """(?x)  a # and a comment goes here
+        |        # continues onto this line
+        | b      # then ends in another comment
+        |""".stripMargin,
+      Re.Concat(Re.Concat(Re.Epsilon, Re.Character('a')), Re.Character('b'))
+    )
+
+    // Effect of `Pattern.UNIX_LINES` on deciding where a comment line ends
+    testParse(
+      "(?x)  a # and a comment goes here \r b",
+      Re.Concat(Re.Concat(Re.Epsilon, Re.Character('a')), Re.Character('b'))
+    )
+    testParse(
+      "(?xd)  a # and a comment goes here \r b",
+      Re.Concat(Re.Epsilon, Re.Character('a'))
+    )
+
+    // Escaping
+    testParse(
+      "(?x)   a \\# \\   ",
+      Re.Concat(
+        Re.Concat(Re.Concat(Re.Epsilon, Re.Character('a')), Re.Character('#')),
+        Re.Character(' ')
+      )
+    )
   }
 
-  describe("errors") {
-    testParseError(
-      "((aa",
-      description = "Unclosed group (expected close paren for group opened at 1)",
-      index = 4
+  // these look weird, but are apparently correct
+  describe("edge cases") {
+    testParse(
+      "a}",
+      Re.Concat(Re.Character('a'), Re.Character('}'))
+    )
+
+    testParse(
+      "a]",
+      Re.Concat(Re.Character('a'), Re.Character(']'))
     )
   }
 

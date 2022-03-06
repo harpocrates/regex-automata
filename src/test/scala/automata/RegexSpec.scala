@@ -287,4 +287,18 @@ class RegexSpec extends AnyFunSpec {
       )),
     )
   )
+
+  // Computed character classes
+  testMatching(
+    pattern = "<\\p{IsCyrillic}>",
+    expectedGroupCount = 0,
+    inputs = ListMap(
+      "<\u044c>" -> Some(Nil),
+      "<\u0492>" -> Some(Nil),
+      "<\u2de6>" -> Some(Nil),
+      "<\ua641>" -> Some(Nil),
+      "<\ua631>" -> None
+    )
+  )
+
 }
