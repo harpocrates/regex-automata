@@ -458,6 +458,15 @@ class RegexParserSpec extends AnyFunSpec with ScalaCheckDrivenPropertyChecks wit
       ),
       flags = Pattern.LITERAL
     )
+
+    testParse(
+      "[\\Q[]\\E]",
+      Re.UnionClass(Re.Character('['), Re.Character(']'))
+    )
+    testParse(
+      "[\\Qa\\E-z]",
+      Re.CharacterRange('a', 'z')
+    )
   }
 
   describe("comment mode") {

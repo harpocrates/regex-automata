@@ -76,6 +76,12 @@ class RegexParserErrorsSpec extends AnyFunSpec {
       description = "Backreferences are not supported",
       index = 9
     )
+
+    testParseError(
+      "[\\Q\\E]",
+      description = "Empty literal escapes in character classes are not supported",
+      index = 5
+    )
   }
 
   describe("invalid range") {
@@ -143,7 +149,6 @@ class RegexParserErrorsSpec extends AnyFunSpec {
         index = 2
       )
     }
-
 
     testParseError(
       "\\i",

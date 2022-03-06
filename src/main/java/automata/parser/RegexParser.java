@@ -421,23 +421,10 @@ public final class RegexParser<A, C> {
    * This intentionally ignores comments/space even in {@code COMMENTS} mode.
    */
   private A parseLiteralSequence() {
-    final String END_LITERAL = "\\E";
-
-    // Figure out where the literal sequence ends
-    final String literal;
-    final int endIndex = input.indexOf(END_LITERAL, position);
-    if (endIndex == -1) {
-      literal = input.substring(position);
-      position = input.length();
-    } else {
-      literal = input.substring(position, endIndex);
-      position = endIndex + END_LITERAL.length();
-    }
-
     // Make sure the literal flag is no longer set
     this.regexFlags = this.regexFlags & ~Pattern.LITERAL;
 
-    return literal
+    return parseLiteralString()
       .codePoints()
       .<C>mapToObj(visitor::visitCharacter)
       .<A>map(visitor::visitCharacterClass)
@@ -725,6 +712,25 @@ public final class RegexParser<A, C> {
 
             return parsePropertyClass(propertyName, c == 'P');
 
+          case 'Q':
+            position++;
+            final var characters = parseLiteralString();
+            final int codePointLength = characters.codePointCount(0, characters.length());
+
+            // Literal escapes
+            if (codePointLength == 1) {
+              stashedCodePoint = characters.codePointAt(0);
+              return null;
+            } else if (codePointLength == 0) {
+              throw unsupported("Empty literal escapes in character classes");
+            } else {
+              return characters
+                .codePoints()
+                .<C>mapToObj(visitor::visitCharacter)
+                .<C>reduce(visitor::visitUnion)
+                .get();
+            }
+
           // Back-references
           case '1':
           case '2':
@@ -938,6 +944,28 @@ public final class RegexParser<A, C> {
       }
     }
     return visitor.visitCharacter(ch);
+  }
+
+  /**
+   * Parse a literal up to a possible {@code \\E}.
+   *
+   * @return string inside the literal section
+   */
+  private String parseLiteralString() {
+    final String END_LITERAL = "\\E";
+
+    // Figure out where the literal sequence ends
+    final String literal;
+    final int endIndex = input.indexOf(END_LITERAL, position);
+    if (endIndex == -1) {
+      literal = input.substring(position);
+      position = input.length();
+    } else {
+      literal = input.substring(position, endIndex);
+      position = endIndex + END_LITERAL.length();
+    }
+
+    return literal;
   }
 
   /**
