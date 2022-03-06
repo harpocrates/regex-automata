@@ -5,6 +5,7 @@ import org.scalactic.source.Position
 import org.scalatest.funspec.AnyFunSpec
 import org.scalatestplus.scalacheck.ScalaCheckDrivenPropertyChecks
 import scala.jdk.CollectionConverters._
+import java.util.regex.PatternSyntaxException
 
 class RegexParserSpec extends AnyFunSpec with ScalaCheckDrivenPropertyChecks with ReGenerator {
 
@@ -17,6 +18,20 @@ class RegexParserSpec extends AnyFunSpec with ScalaCheckDrivenPropertyChecks wit
   ): Unit = {
     def test = assert(Re.parse(input) === parsesTo, "regex must parse correctly")
     if (skip) ignore(input)(test) else it(input)(test)
+  }
+
+  private def testParseError(
+    input: String,
+    description: String,
+    index: Int
+  )(implicit
+    pos: Position
+  ): Unit = {
+    it(input) {
+      val err = intercept[PatternSyntaxException](Re.parse(input))
+      assert(err.getDescription === description, "error description must match")
+      assert(err.getIndex === index, "error index must match")
+    }
   }
 
   describe("characters") {
@@ -34,6 +49,7 @@ class RegexParserSpec extends AnyFunSpec with ScalaCheckDrivenPropertyChecks wit
       testParse("\\f", Re.Character('\f'))
       testParse("\\t", Re.Character('\t'))
       testParse("\\r", Re.Character('\r'))
+      testParse("\\n", Re.Character('\n'))
     }
 
     describe("hexadecimal codes") {
@@ -41,6 +57,12 @@ class RegexParserSpec extends AnyFunSpec with ScalaCheckDrivenPropertyChecks wit
       testParse("\\u248e", Re.Character('\u248e'))
       testParse("\\x{1a3}", Re.Character('\u01a3'))
       testParse("\\x{10437}", Re.Character(0x10437))
+    }
+
+    describe("octal codes") {
+      testParse("\\07", Re.Character(7))
+      testParse("\\047", Re.Character(39))
+      testParse("\\0234", Re.Character(156))
     }
   }
 
@@ -361,6 +383,10 @@ class RegexParserSpec extends AnyFunSpec with ScalaCheckDrivenPropertyChecks wit
     }
   }
 
+  describe("named code points") {
+    testParse("\\N{LATIN SMALL LETTER A WITH DIAERESIS}", Re.Character('\u00e4'))
+  }
+
   describe("property clases") {
     describe("scripts") {
       testParse(
@@ -413,6 +439,18 @@ class RegexParserSpec extends AnyFunSpec with ScalaCheckDrivenPropertyChecks wit
         Re.Concat(Re.Character('a'), Re.Character('*')),
         isLazy = false
       )
+    )
+  }
+
+  describe("comment mode") {
+    testParse("(?x)  a  b   ", Re.Concat(Re.Concat(Re.Epsilon, Re.Character('a')), Re.Character('b')))
+  }
+
+  describe("errors") {
+    testParseError(
+      "((aa",
+      description = "Unclosed group (expected close paren for group opened at 1)",
+      index = 4
     )
   }
 

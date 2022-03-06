@@ -98,13 +98,104 @@ public final class RegexParser<A, C> {
   }
 
   /**
-   * Check if a certain regex flag is enabled.
+   * Check if certain regex flags are enabled.
    *
-   * @param flag bit mask of the flag to check
-   * @return whether the flag is enabled
+   * @param flags bit mask of the flags to check
+   * @return whether the flags are enabled
    */
-  private boolean checkFlag(int flag) {
-    return (regexFlags & flag) != 0;
+  private boolean checkFlags(int flags) {
+    return (regexFlags & flags) != 0;
+  }
+
+  /**
+   * Set which regex flags are enabled.
+   *
+   * @param flags bit mask of the flags to set
+   */
+  private void setFlags(int flags) {
+    regexFlags = flags;
+  }
+
+
+  /**
+   * Advance the cursor past any whitespace or comments.
+   */
+  private void advancePastComments() {
+    if (!checkFlags(Pattern.COMMENTS)) return;
+    while (position < length) {
+      int codePoint = input.codePointAt(position);
+      if (!Character.isWhitespace(codePoint)) {
+        break;
+      }
+      position += Character.charCount(codePoint);
+
+      if (codePoint == '#') {
+        advancePastComment();
+      }
+    }
+  }
+
+  /**
+   * Advance the cursor past a line comment.
+   */
+  private void advancePastComment() {
+    while (position < length) {
+      int ch = input.charAt(position);
+      position++;
+
+      if (ch == '\n') {
+        return;
+      }
+
+      // Unix lines mode means _only_ `\n` is a newline
+      if (!checkFlags(Pattern.UNIX_LINES) &&
+          (ch == '\r' || ch == '\u2028' || ch == '\u2029' || ch == '\u0085')) {
+        return;
+      }
+    }
+  }
+
+  /**
+   * Peek the next character in the input without advancing the position.
+   *
+   * @return next character or else -1 if there is none
+   */
+  int peekChar() {
+    advancePastComments();
+    return position < length ? input.charAt(position) : -1;
+  }
+
+  /**
+   * Skip over the next character.
+   */
+  void skipChar() {
+    advancePastComments();
+    position++;
+  }
+
+  /**
+   * Get the next character from the input advancing the position.
+   *
+   * @return next character
+   */
+  char nextChar() {
+    advancePastComments();
+    return input.charAt(position++);
+  }
+
+  /**
+   * Advance past the next character only if it matches the expected.
+   *
+   * @param matching desired character
+   * @return whether the character was found
+   */
+  boolean nextCharIf(char matching) {
+    advancePastComments();
+    final boolean matches = position < length && input.charAt(position) == matching;
+    if (matches) {
+      position++;
+    }
+    return matches;
   }
 
   /**
@@ -112,8 +203,7 @@ public final class RegexParser<A, C> {
    */
   private A parseAlternation() throws PatternSyntaxException {
     A unionLhs = parseConcatenation();
-    while (position < length && input.charAt(position) == '|') {
-      position++;
+    while (nextCharIf('|')) {
       A unionRhs = parseConcatenation();
       unionLhs = visitor.visitAlternation(unionLhs, unionRhs);
     }
@@ -128,9 +218,9 @@ public final class RegexParser<A, C> {
     A concatLhs = null;
 
     // Keep parsing concatenations until a lower priority construct is encountered
-    while (position < length) {
-      final char c = input.charAt(position);
-      if ((c == ')' || c == '|') && !checkFlag(Pattern.LITERAL)) break;
+    int c;
+    while ((c = peekChar()) != -1) {
+      if ((c == ')' || c == '|') && !checkFlags(Pattern.LITERAL)) break;
       A concatRhs = parseQuantified();
       if (concatLhs == null) {
         concatLhs = concatRhs;
@@ -154,27 +244,26 @@ public final class RegexParser<A, C> {
     int atLeast = 0;
     OptionalInt atMost = OptionalInt.empty();
 
+    int c;
     postfix_parsing:
-    while (position < length) {
-      final char c = input.charAt(position);
+    while ((c = peekChar()) != -1) {
 
       // Pass over the quanitifier stem
       switch (c) {
         case '*':
         case '?':
         case '+':
-          position++;
+          skipChar();
           break;
 
         case '{':
-          position++;
+          skipChar();
           // Parse `atLeast`
           atLeast = parseDecimalInteger();
 
           // Parse `atMost`
-          if (position < length && input.charAt(position) == ',') {
-            position++;
-            if (position < length && input.charAt(position) != '}') {
+          if (nextCharIf(',')) {
+            if (peekChar() != '}') {
               atMost = OptionalInt.of(parseDecimalInteger());
             }
           } else {
@@ -182,10 +271,9 @@ public final class RegexParser<A, C> {
           }
 
           // Close repetition
-          if (position >= length || input.charAt(position) != '}') {
+          if (!nextCharIf('}')) {
             throw error("Expected `}` to close repetition");
           }
-          position++;
           break;
 
         default:
@@ -194,20 +282,13 @@ public final class RegexParser<A, C> {
 
       // `?` suffix indicates the quantifier is lazy (reluctant) instead of being greedy
       boolean isLazy = false;
-      if (position < length) {
-        final char suffix = input.charAt(position);
-        switch (suffix) {
-          case '?':
-            position ++;
-            isLazy = true;
-            break;
-
-          case '+':
-            throw error(
-              "Possesive quantifiers are not supported (use extra parentheses to express one or " +
-              "more of an already quatifier expression: `(a?)+` instead of `a?+`"
-            );
-        }
+      if (nextCharIf('?')) {
+        isLazy = true;
+      } else if (peekChar() == '+') {
+        throw error(
+          "Possesive quantifiers are not supported (use extra parentheses to express one or " +
+          "more of an already quatifier expression: `(a?)+` instead of `a?+`"
+        );
       }
 
       // Visit the quantifier corresponding to the initial character
@@ -238,23 +319,24 @@ public final class RegexParser<A, C> {
   @SuppressWarnings("fallthrough")
   private A parseGroup() throws PatternSyntaxException {
 
-    if (checkFlag(Pattern.LITERAL)) {
+    if (checkFlags(Pattern.LITERAL)) {
       return parseLiteralSequence();
     }
 
-    switch (input.charAt(position)) {
+    switch (peekChar()) {
       case '(':
         break;
 
       case '^':
-        position++;
+        skipChar();
         return visitor.visitBoundary(Boundary.BEGINNING_OF_LINE);
 
       case '$':
-        position++;
+        skipChar();
         return visitor.visitBoundary(Boundary.END_OF_LINE);
 
       case '\\':
+        // NB: not `nextChar` since `\\ ` or `\\#` are escapes even in comment mode
         if (position + 1 < length) {
           final char escaped = input.charAt(position + 1);
 
@@ -278,7 +360,7 @@ public final class RegexParser<A, C> {
 
     // Track the open paren so we can use it in the error message
     final int openParenPosition = position;
-    position++;
+    skipChar();
 
     // Flags to set back after the group is parsed
     int stashedFlags = this.regexFlags;
@@ -286,44 +368,42 @@ public final class RegexParser<A, C> {
     // Detect `?:` non capture groups
     boolean capture = true;
 
-    if (position < length && input.charAt(position) == '?') {
-      position++;
+    if (nextCharIf('?')) {
 
       // We don't error if we reach the end because we'll anyways error on an unclosed group below
-      if (position < length) {
-        switch (input.charAt(position)) {
-          case '=':
-          case '!':
-          case '<':
-          case '>':
+      switch (peekChar()) {
+        case -1:
+          break;
+
+        case '=':
+        case '!':
+        case '<':
+        case '>':
+          throw error(
+            "Only non-capturing groups are supported (lookaheads and lookbehinds aren't)"
+          );
+
+        default:
+          capture = false;
+
+          // Parse out flags
+          int flags = parseRegexFlags();
+          if (nextCharIf('-')) {
+            flags &= ~parseRegexFlags();
+          }
+
+          final int afterFlags = peekChar();
+          if (afterFlags == ':') {
+            skipChar();
+            this.regexFlags = flags;
+          } else if (afterFlags == ')') {
+            this.regexFlags = flags;
+            stashedFlags = flags; // Don't reset flags back
+          } else if (afterFlags != -1) {
             throw error(
-              "Only non-capturing groups are supported (lookaheads and lookbehinds aren't)"
+              "Invalid non-capturing group (expected colon or close paren for group opened at " + openParenPosition + ")"
             );
-
-          default:
-            capture = false;
-
-            // Parse out flags
-            int flags = parseRegexFlags();
-            if (position < length && input.charAt(position) == '-') {
-              flags &= ~parseRegexFlags();
-            }
-
-            if (position < length) {
-              final char afterFlags = input.charAt(position);
-              if (afterFlags == ':') {
-                position++;
-                this.regexFlags = flags;
-              } else if (afterFlags == ')') {
-                this.regexFlags = flags;
-                stashedFlags = flags; // Don't reset flags back
-              } else {
-                throw error(
-                  "Invalid non-capturing group (expected colon or close paren for group opened at " + openParenPosition + ")"
-                );
-              }
-            }
-        }
+          }
       }
     }
 
@@ -332,12 +412,10 @@ public final class RegexParser<A, C> {
 
     // Parse the group body and ensure that it is closed
     final A union = parseAlternation();
-    if (!(position < length && input.charAt(position) == ')')) {
+    if (!nextCharIf(')')) {
       throw error(
         "Unclosed group (expected close paren for group opened at " + openParenPosition + ")"
       );
-    } else {
-      position++;
     }
 
     // Reset flags for non-capturing groups
@@ -350,6 +428,8 @@ public final class RegexParser<A, C> {
 
   /**
    * Parse a literal sequence which can be terminated only with {@code \\E}.
+   *
+   * This intentionally ignores comments/space even in {@code COMMENTS} mode.
    */
   private A parseLiteralSequence() {
     final String END_LITERAL = "\\E";
@@ -406,14 +486,13 @@ public final class RegexParser<A, C> {
     boolean closingClassRange
   ) throws PatternSyntaxException {
     int codePoint;
-    switch (input.charAt(position)) {
+    switch (peekChar()) {
       case '.':
+        skipChar();
         if (insideClass) {
-          position++;
           stashedCodePoint = '.';
           return null;
         } else {
-          position++;
           return visitor.visitBuiltinClass(BuiltinClass.DOT);
         }
 
@@ -425,13 +504,10 @@ public final class RegexParser<A, C> {
 
         // Track the open paren so we can use it in the error message
         final int openBracketPosition = position;
-        position++;
+        skipChar();
 
         // Is the class negated?
-        boolean negated = position < length && input.charAt(position) == '^';
-        if (negated) {
-          position++;
-        }
+        boolean negated = nextCharIf('^');
         if (position >= length) {
           throw error(
             "Unclosed character class (expected close to bracket opened at " + openBracketPosition + ")"
@@ -440,20 +516,20 @@ public final class RegexParser<A, C> {
 
         // Class body
         final C union = parseClassIntersection();
-        if (!(position < length && input.charAt(position) == ']')) {
+        if (!nextCharIf(']')) {
           throw error(
             "Unclosed character class (expected close to bracket opened at " + openBracketPosition + ")"
           );
         }
-        position++;
         return negated ? visitor.visitNegated(union) : union;
 
       case '\\':
-        position++;
+        skipChar();
         if (position >= length) {
           throw error("Pattern may not end with backslash");
         }
 
+        // NB: not `nextChar` since `\\ ` or `\\#` are escapes even in comment mode
         final char c = input.charAt(position);
         switch (c) {
           case '\\':
@@ -530,33 +606,33 @@ public final class RegexParser<A, C> {
           // Control character
           case 'c':
             position++;
-            if (position >= length) {
+
+            final int control = peekChar();
+            if (control == -1) {
               throw error("Control character letter but got end of regex");
+            } else if ('A' <= control && control <= 'Z') {
+              skipChar();
+              stashedCodePoint = control - 'A' + 112;
+              return null;
             } else {
-              final char control = input.charAt(position);
-              if ('A' <= control && control <= 'Z') {
-                position++;
-                stashedCodePoint = control - 'A' + 112;
-                return null;
-              } else {
-                throw error("Control character letter");
-              }
+              throw error("Control character letter");
             }
 
           // Hexadecimal escape `\xhh` or `\x{h...h}`
           case 'x':
             position++;
 
-            if (position >= length) {
+            int hexChar = peekChar();
+            if (hexChar == -1) {
               throw error("Hexadecimal or `{` but got end of regex");
-            } else if (input.charAt(position) == '{') {
-              position++;
+            } else if (hexChar == '{') {
+              skipChar();
 
               // Loop over hex characters
               codePoint = 0;
-              while (position < length) {
-                if (input.charAt(position) == '}') {
-                  position++;
+              while ((hexChar = peekChar()) != -1) {
+                if (hexChar == '}') {
+                  skipChar();
                   stashedCodePoint = codePoint;
                   return null;
                 }
@@ -568,11 +644,6 @@ public final class RegexParser<A, C> {
               }
               throw error("Hexadecimal or `}` but got end of regex");
             } else {
-              if (position + 2 > length) {
-                throw error(
-                  "Expected 2 hexadecimal escape characters but got end of regex"
-                );
-              }
               codePoint = parseHexadecimalCharacter();
               codePoint = (codePoint << 4) | parseHexadecimalCharacter();
               stashedCodePoint = codePoint;
@@ -582,11 +653,6 @@ public final class RegexParser<A, C> {
           // Hexadecimal escape `\\uhhhh`
           case 'u':
             position++;
-            if (position + 4 > length) {
-              throw error(
-                "Expected 4 hexadecimal escape characters but got end of regex"
-              );
-            }
             codePoint = parseHexadecimalCharacter();
             codePoint = (codePoint << 4) | parseHexadecimalCharacter();
             codePoint = (codePoint << 4) | parseHexadecimalCharacter();
@@ -628,22 +694,18 @@ public final class RegexParser<A, C> {
           case 'N':
             position++;
 
-            if (position >= length || input.charAt(position) != '{') {
+            if (!nextCharIf('{')) {
               throw error("Expected `{`");
-            } else {
-              final int start = ++position;
+            }
 
-              // Loop over characters
-              while (position < length) {
-                if (input.charAt(position) == '}') {
-                  stashedCodePoint = Character.codePointOf(input.substring(start, position));
-                  position++;
-                  return null;
-                }
-                position++;
-              }
+            // Loop over characters
+            final int endName = input.indexOf("}", position);
+            if (endName == -1) {
               throw error("`}` but got end of regex");
             }
+            stashedCodePoint = Character.codePointOf(input.substring(position, endName));
+            position = endName + 1;
+            return null;
 
           // Properties
           case 'p':
@@ -652,18 +714,22 @@ public final class RegexParser<A, C> {
 
             // Name of the property
             final String propertyName;
-            if (position >= length) {
-              throw error("Expected property name but got end of regex");
-            } else if (input.charAt(position) != '{') {
-              propertyName = input.substring(position, position+1);
-            } else {
-              final int startProperty = position++;
-              do {
-                if (position >= length) {
+            switch (peekChar()) {
+              case -1:
+                throw error("Expected property name but got end of regex");
+
+              case '{':
+                skipChar();
+                final int endProperty = input.indexOf("}", position);
+                if (endProperty == -1) {
                   throw error("Expected `}` but got end of regex");
                 }
-              } while (input.charAt(position++) != '}');
-              propertyName = input.substring(startProperty + 1, position - 1);
+                propertyName = input.substring(position, endProperty);
+                position = endProperty + 1;
+                break;
+
+              default:
+                propertyName = Character.toString(nextChar());
             }
 
             return parsePropertyClass(propertyName, c == 'P');
@@ -789,14 +855,16 @@ public final class RegexParser<A, C> {
    * Called on non-empty input.
    */
   private C parseClassIntersection() throws PatternSyntaxException {
-    final int i = new java.util.Random().nextInt(0, 100);
     C intersection = parseClassUnion();
 
-    while (position + 2 < length) {
-      if (input.charAt(position) != '&' || input.charAt(position + 1) != '&') {
+    while (peekChar() == '&') {
+      final int stashedPosition = position;
+      skipChar();
+
+      if (!nextCharIf('&')) {
+        position = stashedPosition;
         break;
       }
-      position += 2;
       C u = parseClassUnion();
       intersection = visitor.visitIntersection(intersection, u);
     }
@@ -814,11 +882,17 @@ public final class RegexParser<A, C> {
     C union = parseCharacterRange();
 
     // Keep parsing ranges until a lower priority construct is encountered
-    union_loop: while (position < length) {
-      switch (input.charAt(position)) {
+    int peekedChar;
+    union_loop: while ((peekedChar = peekChar()) != -1) {
+      switch (peekedChar) {
         // Intersection
         case '&':
-          if (position + 1 < length && input.charAt(position + 1) == '&') {
+          final int stashedPosition = position;
+          skipChar();
+          final boolean isIntersection = peekChar() == '&';
+          position = stashedPosition;
+
+          if (isIntersection) {
             break union_loop;
           }
           break;
@@ -876,13 +950,14 @@ public final class RegexParser<A, C> {
   }
 
   /**
-   * Parse a hexadecimal character from a non-empty input
+   * Parse a hexadecimal character from the input.
    */
   private int parseHexadecimalCharacter() throws PatternSyntaxException {
-    final int h = Character.digit(input.charAt(position++), 16);
+    final int h = Character.digit(peekChar(), 16);
     if (h < 0) {
       throw error("Expected a hexadecimal character");
     } else {
+      skipChar();
       return h;
     }
   }
@@ -892,9 +967,10 @@ public final class RegexParser<A, C> {
    */
   private int parseDecimalInteger() throws PatternSyntaxException {
     long integer = 0;
-    while (position < length) {
+    int peekedChar;
+    while ((peekedChar = peekChar()) != -1) {
       // Try to read another decimal character
-      final int d = Character.digit(input.charAt(position), 10);
+      final int d = Character.digit(peekedChar, 10);
       if (d < 0) {
         break;
       }
@@ -904,7 +980,7 @@ public final class RegexParser<A, C> {
       if (integer > Integer.MAX_VALUE) {
         throw error("Decimal integer overflowed");
       }
-      position++;
+      skipChar();
     }
     return (int) integer;
   }
@@ -915,9 +991,10 @@ public final class RegexParser<A, C> {
   private int parseRegexFlags() {
     int flags = 0;
 
+    int peekedChar;
     flag_parsing:
-    while (position < length) {
-      switch (input.charAt(position)) {
+    while ((peekedChar = peekChar()) != -1) {
+      switch (peekedChar) {
         case 'i':
           flags |= Pattern.CASE_INSENSITIVE;
           break;
@@ -944,6 +1021,7 @@ public final class RegexParser<A, C> {
 
         case 'x':
           flags |= Pattern.COMMENTS;
+          System.out.println("Comments");
           break;
 
         case 'U':
@@ -954,7 +1032,7 @@ public final class RegexParser<A, C> {
         default:
           break flag_parsing;
       }
-      position++;
+      skipChar();
     }
 
     return flags;
