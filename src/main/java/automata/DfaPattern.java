@@ -76,7 +76,7 @@ abstract public class DfaPattern {
    * @param input string against which to match
    * @return matcher for the pattern against the input
    */
-  public abstract DfaMatcher matcher(CharSequence input) throws Throwable;
+  public abstract DfaMatcher matcher(CharSequence input);
 
   /**
    * Compute the number of groups in the pattern.
@@ -104,8 +104,12 @@ abstract public class DfaPattern {
     }
 
     @Override
-    public DfaMatcher matcher(CharSequence input) throws Throwable {
-      return (DfaMatcher)constructMatcher.invoke((DfaPattern)this, input);
+    public DfaMatcher matcher(CharSequence input) {
+      try {
+        return (DfaMatcher)constructMatcher.invoke((DfaPattern)this, input);
+      } catch (Throwable error) {
+        throw new IllegalStateException("Failed to construct matcher", error);
+      }
     }
 
     public CompiledDfaPattern(

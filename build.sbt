@@ -23,7 +23,16 @@ lazy val root = (project in file("."))
     ),
   )
 
-lazy val bench = (project in file("bench"))
+lazy val bench = project
   .dependsOn(root)
   .enablePlugins(JmhPlugin)
+
+lazy val tester = project
+  .dependsOn(root)
+  .settings(
+    crossPaths := false, // drop off Scala suffix from artifact names.
+    autoScalaLibrary := false,
+    name := "tester",
+    javacOptions += "-Xlint",
+  )
 

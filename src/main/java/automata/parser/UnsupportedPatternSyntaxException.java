@@ -17,7 +17,7 @@ public class UnsupportedPatternSyntaxException extends PatternSyntaxException {
    * (Capitalized) name of the unsupported feature category.
    */
   public final String unsupportedFeatureCategory;
-  
+
   public UnsupportedPatternSyntaxException(
     String unsupportedFeatureCategory,
     String regex,
