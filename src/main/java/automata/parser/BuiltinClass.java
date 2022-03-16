@@ -5,7 +5,7 @@ import java.util.Map;
 /**
  * Special character classes.
  *
- * TODO: support more of these
+ * <p>TODO: support more of these
  */
 public enum BuiltinClass {
   /**

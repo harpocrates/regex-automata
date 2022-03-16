@@ -109,7 +109,7 @@ public interface DotGraph<V, E> {
   /**
    * Turn a string into a Dot ID.
    *
-   * As per the docs, an ID can be "any double-quoted string ("...") possibly
+   * <p>As per the docs, an ID can be "any double-quoted string ("...") possibly
    * containing escaped quotes (\")".
    *
    * @param str string to escape into an ID

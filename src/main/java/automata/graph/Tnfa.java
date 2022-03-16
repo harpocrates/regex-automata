@@ -25,7 +25,7 @@ import java.util.stream.Stream;
 /**
  * Tagged non-deterministic finite state automaton.
  *
- * The states are represented using unique integer values and the transitions
+ * <p>The states are represented using unique integer values and the transitions
  * are code unit ranges (these get preserved through to the TDFA), alternation
  * markers for prioritized non-deterministic choice, and group markers for
  * signalling the start or end of a capture group.
@@ -37,18 +37,20 @@ final public class Tnfa implements DotGraph<Integer, TnfaTransition> {
   /**
    * State transitions, indexed along all of the starting nodes.
    *
-   * This list is not modifiable and should support fast random access. The
+   * <p>This list is not modifiable and should support fast random access. The
    * inner maps are also not modifiable and they will fit one of the following
    * profiles:
    *
-   *   - all keys are {@code CodeUnitTransition}
+   * <ul>
+   *   <li>all keys are {@code CodeUnitTransition}
    *
-   *   - keys are the two {@code AlternationMarker}, and the minus shows up
-   *     before the plus in the entry set
+   *   <li>keys are the two {@code AlternationMarker}, and the minus shows up
+   *       before the plus in the entry set
    *
-   *   - key is a single {@code GroupMarker}
+   *   <li>key is a single {@code GroupMarker}
+   * </ul>
    *
-   * Not all states may be reachable (the finite-state machine graph is not
+   * <p>Not all states may be reachable (the finite-state machine graph is not
    * necessarily connected). As an example, the graph corresponding to the
    * regular expression {@code a[b&&c]d} will have no connection from {@code a}
    * to {@code d} (since the code point set associated with {@code [b&&c]} is
@@ -69,7 +71,7 @@ final public class Tnfa implements DotGraph<Integer, TnfaTransition> {
   /**
    * Group markers in the NFA.
    *
-   * This manages tracking equivalence classes of group markers.
+   * <p>This manages tracking equivalence classes of group markers.
    */
   public final GroupMarkers groupMarkers;
 
@@ -88,13 +90,14 @@ final public class Tnfa implements DotGraph<Integer, TnfaTransition> {
   /**
    * Parse an NFA from a regular expression pattern.
    *
-   * If both the wrapping group and wildcard prefix options are enabled, the
-   * wrapping group starts _after_ the wildcard prefix.
+   * <p>If both the wrapping group and wildcard prefix options are enabled, the
+   * wrapping group starts <em>after</em> the wildcard prefix.
    *
    * @param pattern regular expression to parse
    * @param flags bitmask of match flags
    * @param wrappingGroup add an implicit capture group around the expression
    * @param wildcardPrefix accept any prefix before the expression
+   * @return tagged NFA corresponding to the pattern
    */
   public static Tnfa parse(
     String pattern,
@@ -167,8 +170,6 @@ final public class Tnfa implements DotGraph<Integer, TnfaTransition> {
      * Finalize the construction of the TNFA.
      *
      * @param visitorOutput output from visiting the regular expression
-     * @param initialState which state is the starting one
-     * @param finalState which state is the accepting one
      * @return valid TNFA
      */
     public Tnfa constructNfa(UnaryOperator<NfaState<Integer>> visitorOutput) {
@@ -258,14 +259,14 @@ final public class Tnfa implements DotGraph<Integer, TnfaTransition> {
    * Explore all states reachable only via path markers and ending at states
    * which have outgoing code unit transitions.
    *
-   * If there are paths for reaching the same code unit transition, the path
+   * <p>If there are paths for reaching the same code unit transition, the path
    * which has a {@code AlternationMarker.PLUS} earlier on it is the one that
    * should be returned.
    *
-   * The worst case complexity is {@code O(E)} (since we visit each transition
-   * at most once), but it is usually much better. Practically speaking the
-   * sub-graph obtained by filtering out code unit transitions tends to be much
-   * smaller and often not connected.
+   * <p>The worst case complexity is {@code O(E)} (since we visit each
+   * transition at most once), but it is usually much better. Practically
+   * speaking the sub-graph obtained by filtering out code unit transitions
+   * tends to be much smaller and often not connected.
    *
    * @param startingState state from which to initiate the directed search
    * @return ordered mapping from states reachable via path markers to those paths

@@ -20,7 +20,7 @@ import java.util.stream.IntStream;
 /**
  * Set of integers, tracked using ranges.
  *
- * The constraint on ranges being non-overlapping, non-contiguous, and sorted
+ * <p>The constraint on ranges being non-overlapping, non-contiguous, and sorted
  * ensures that there is always exactly one canonical instance for any logical
  * set of integers. If the input set of integers is not already in this
  * format, construct the set using {@link #unionOf}.
@@ -53,7 +53,7 @@ public record IntRangeSet(
    * Construct a set with the following non-overlapping, non-contiguous, and
    * sorted ranges.
    *
-   * The compexity is {@code O(M)} for {@code M} input ranges. If the ranges
+   * <p>The compexity is {@code O(M)} for {@code M} input ranges. If the ranges
    * are possibly overlapping, contiguous, or unsorted, use {@link #unionOf}.
    *
    * @param ranges input ranges
@@ -66,7 +66,7 @@ public record IntRangeSet(
   /**
    * Construct a set that is the union of the following ranges.
    *
-   * Unlike {@link #of}, this will never throw an exception, although the
+   * <p>Unlike {@link #of}, this will never throw an exception, although the
    * complexity is {@code O(M)} for {@code M} input ranges.
    *
    * @param ranges input ranges
@@ -153,7 +153,7 @@ public record IntRangeSet(
   /**
    * Whether this range contain the integer.
    *
-   * The complexity is {@code O(log(M))} for {@code M} ranges in the set,
+   * <p>The complexity is {@code O(log(M))} for {@code M} ranges in the set,
    * provided the set is backed by a random access list. If not, the fallback
    * is an {@code O(M)} linear scan.
    *
@@ -192,7 +192,7 @@ public record IntRangeSet(
   /**
    * Compute the union of a collection of sets.
    *
-   * The compexity is {@code O(N * M * log(N))} for {@code N} input sets with
+   * <p>The compexity is {@code O(N * M * log(N))} for {@code N} input sets with
    * {@code M} ranges in them.
    *
    * @param sets collections of integer sets
@@ -205,7 +205,8 @@ public record IntRangeSet(
   /**
    * Take the union of two sets.
    *
-   * The compexity is {@code O(M)} for input sets with {@code M} ranges in them.
+   * <p>The compexity is {@code O(M)} for input sets with {@code M} ranges in
+   * them.
    *
    * @param other set to union with `this`
    * @return union of sets
@@ -217,7 +218,7 @@ public record IntRangeSet(
   /**
    * Compute the intersection of a collection of sets.
    *
-   * The compexity is {@code O(N * M * log(N))} for {@code N} input sets with
+   * <p>The compexity is {@code O(N * M * log(N))} for {@code N} input sets with
    * {@code M} ranges in them.
    *
    * @param sets collections of integer sets
@@ -231,7 +232,8 @@ public record IntRangeSet(
   /**
    * Take the intersection of two sets.
    *
-   * The compexity is {@code O(M)} for input sets with {@code M} ranges in them.
+   * <p>The compexity is {@code O(M)} for input sets with {@code M} ranges in
+   * them.
    *
    * @param other set to intersect with `this`
    * @return intersection of sets
@@ -243,7 +245,7 @@ public record IntRangeSet(
   /**
    * Compute the symmetric difference of a collection of sets.
    *
-   * The compexity is {@code O(N * M * log(N))} for {@code N} input sets with
+   * <p>The compexity is {@code O(N * M * log(N))} for {@code N} input sets with
    * {@code M} ranges in them.
    *
    * @param sets collections of integer sets
@@ -257,7 +259,8 @@ public record IntRangeSet(
   /**
    * Take the symmetric difference of two sets.
    *
-   * The compexity is {@code O(M)} for input sets with {@code M} ranges in them.
+   * <p>The compexity is {@code O(M)} for input sets with {@code M} ranges in
+   * them.
    *
    * @param other set to intersect with `this`
    * @return symmetric difference of sets
@@ -269,7 +272,8 @@ public record IntRangeSet(
   /**
    * Take the complement of a set.
    *
-   * The compexity is {@code O(M)} for input sets with {@code M} ranges in them.
+   * <p>The compexity is {@code O(M)} for input sets with {@code M} ranges in
+   * them.
    *
    * @return complement of set
    */
@@ -280,7 +284,8 @@ public record IntRangeSet(
   /**
    * Take the difference with another set.
    *
-   * The compexity is {@code O(M)} for input sets with {@code M} ranges in them.
+   * <p>The compexity is {@code O(M)} for input sets with {@code M} ranges in
+   * them.
    *
    * @param other set to subtract from `this`
    * @return set difference
@@ -292,29 +297,31 @@ public record IntRangeSet(
   /**
    * Aggregate a collection of sets into one set.
    *
-   * Criteria for an integer being in the output set is whether that integer
+   * <p>Criteria for an integer being in the output set is whether that integer
    * is in an accepted number of input sets. This covers most set operations
    * uniformly
    *
-   *  - Union with {@code (int n) -> n >= 1}
-   *  - Intersection with {@code (int n) -> n == N} (for {@code N} input sets)
-   *  - Symmetric difference with {@code (int n) -> n % 2 == 1}
-   *  - Complement with {@code (int n) -> n == 0} (with one input)
+   * <ul>
+   *  <li>Union with {@code (int n) -> n >= 1}
+   *  <li>Intersection with {@code (int n) -> n == N} (for {@code N} input sets)
+   *  <li>Symmetric difference with {@code (int n) -> n % 2 == 1}
+   *  <li>Complement with {@code (int n) -> n == 0} (with one input)
+   * </ul>
    *
-   * The compexity is {@code O(N * M * log(N))} for {@code N} input sets with
+   * <p>The compexity is {@code O(N * M * log(N))} for {@code N} input sets with
    * {@code M} ranges in them.
    *
    * <h1>Algorithm</h1>
    *
-   * The main idea is to scan from left-to-right all the lower and upper
+   * <p>The main idea is to scan from left-to-right all the lower and upper
    * endpoints of ranges in the sets. While doing this, we can keep a running
    * counter of how many intervals are open at any given point in time.
    *
-   * Whenever this number changes, we can use the predicate function to
+   * <p>Whenever this number changes, we can use the predicate function to
    * determine whether we've just started or ended a range for the output set.
    *
-   * Since we know intervals are already sorted within a set, we can do all of
-   * this using a priority queue that contains {@code 2 * N} iterators: each
+   * <p>Since we know intervals are already sorted within a set, we can do all
+   * of this using a priority queue that contains {@code 2 * N} iterators: each
    * set adds an iterator tracking the lower bounds of its ranges and a set
    * tracking the upper bounds of those same ranges. The priority given to the
    * elements is the position of their first upper or lower bound (see the
@@ -403,12 +410,12 @@ public record IntRangeSet(
   /**
    * Convert a set of ranges into a set of disjoint partition sets.
    *
-   * The range sets returned should be disjoint and keyed by all of the input
+   * <p>The range sets returned should be disjoint and keyed by all of the input
    * sets containing that partition. Additionally, any of the input sets should
    * be recoverable by taking the union of all of the values whose keys contain
    * the input set's key.
    *
-   * Note that this does not include the empty set as a key.
+   * <p>Note that this does not include the empty set as a key.
    *
    * @param sets input sets, keyed with some unique identifier
    * @return mapping from sets containing a partition subset to the partition subset
@@ -469,14 +476,12 @@ public record IntRangeSet(
   }
 
   /**
-   * Compares (non-empty) iterators based on
+   * Compares (non-empty) iterators of ascending endpoints.
    *
-   *   - the lower bound of their first range if the boolean is false
-   *   - the upper bound of their first range if the boolean is true
+   * <p>First compares the endpoint value, then breaks ties by considering upper
+   * endpoints larger than lower endpoints.
    *
-   * Lower bounds take priority over upper bounds if there is a tie.
-   *
-   * Behaviour on empty endpoint iterators is undefined.
+   * <p>Behaviour on empty endpoint iterators is undefined.
    */
   private static final Comparator<EndpointIterator<?>> RANGE_ITERATOR_COMPARATOR =
     Comparator

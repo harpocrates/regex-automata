@@ -97,6 +97,10 @@ public final class RegexParser<A, C> {
     return new PatternSyntaxException(message, input, position);
   }
 
+  private PatternSyntaxException error(String message, int position) {
+    return new PatternSyntaxException(message, input, position);
+  }
+
   private UnsupportedPatternSyntaxException unsupported(String unsupported) {
     return new UnsupportedPatternSyntaxException(unsupported, input, position);
   }
@@ -251,6 +255,7 @@ public final class RegexParser<A, C> {
           break;
 
         case '{':
+          int openBracePosition = position;
           skipChar();
           // Parse `atLeast`
           atLeast = parseDecimalInteger();
@@ -266,7 +271,7 @@ public final class RegexParser<A, C> {
 
           // Close repetition
           if (!nextCharIf('}')) {
-            throw error("Expected `}` to close repetition");
+            throw error("Expected `}` to close repetition (opened at " + openBracePosition + ")");
           }
           break;
 
@@ -692,12 +697,14 @@ public final class RegexParser<A, C> {
 
             // Name of the property
             final String propertyName;
+            final int propertyNamePosition;
             switch (peekChar()) {
               case -1:
                 throw error("Expected property name but got end of regex");
 
               case '{':
                 skipChar();
+                propertyNamePosition = position;
                 final int endProperty = input.indexOf("}", position);
                 if (endProperty == -1) {
                   throw error("Expected `}` but got end of regex");
@@ -707,10 +714,11 @@ public final class RegexParser<A, C> {
                 break;
 
               default:
+                propertyNamePosition = position;
                 propertyName = Character.toString(nextChar());
             }
 
-            return parsePropertyClass(propertyName, c == 'P');
+            return parsePropertyClass(propertyName, propertyNamePosition, c == 'P');
 
           case 'Q':
             position++;
@@ -757,7 +765,7 @@ public final class RegexParser<A, C> {
             }
 
           default:
-            if (Character.isLetter(c)) {
+            if (Character.isLetter(c) && c < 128) {
               throw error("Unknown escape sequence: " + c);
             } else {
               codePoint = input.codePointAt(position);
@@ -778,10 +786,15 @@ public final class RegexParser<A, C> {
   /**
    * Parse a {@code \\p} or {@code \\P} property class.
    *
-   * @param name name following the property class escape
+   * @param propertyName name following the property class escape
+   * @param propertyNamePosition position of the start of the property name
    * @param negated whether the class is negated
    */
-  private C parsePropertyClass(String propertyName, boolean negated) {
+  private C parsePropertyClass(
+    String propertyName,
+    int propertyNamePosition,
+    boolean negated
+  ) {
     final int equalsIndex = propertyName.indexOf('=');
 
     // `\p{key=value}`
@@ -796,7 +809,7 @@ public final class RegexParser<A, C> {
             final var block = Character.UnicodeBlock.forName(value);
             return visitor.visitUnicodeBlock(block, negated);
           } catch (IllegalArgumentException err) {
-            throw error("Unknown unicode block: " + value);
+            throw error("Unknown unicode block: " + value, propertyNamePosition + key.length() + 1);
           }
 
         case "sc":
@@ -805,15 +818,15 @@ public final class RegexParser<A, C> {
             final var script = Character.UnicodeScript.forName(value);
             return visitor.visitUnicodeScript(script, negated);
           } catch (IllegalArgumentException err) {
-            throw error("Unknown unicode script: " + value);
+            throw error("Unknown unicode script: " + value, propertyNamePosition + key.length() + 1);
           }
 
         case "gc":
         case "general_category":
-          throw error("Unimplemented general category");
+          throw error("Unimplemented general category", propertyNamePosition);
 
         default:
-          throw error("Unknown property class key: " + key);
+          throw error("Unknown property class key: " + key, propertyNamePosition);
       }
     }
 
@@ -824,7 +837,7 @@ public final class RegexParser<A, C> {
       try {
         block = Character.UnicodeBlock.forName(blockName);
       } catch (IllegalArgumentException err) {
-        throw error("Unknown unicode block: " + blockName);
+        throw error("Unknown unicode block: " + blockName, propertyNamePosition);
       }
       return visitor.visitUnicodeBlock(block, negated);
     }
@@ -836,14 +849,14 @@ public final class RegexParser<A, C> {
       try {
         script = Character.UnicodeScript.forName(scriptName);
       } catch (IllegalArgumentException err) {
-        throw error("Unknown unicode script: " + scriptName);
+        throw error("Unknown unicode script: " + scriptName, propertyNamePosition);
       }
       return visitor.visitUnicodeScript(script, negated);
     }
 
 
     // Property
-    throw error("Unknown property " + propertyName);
+    throw error("Unknown property " + propertyName, propertyNamePosition);
   }
 
   /**
@@ -982,11 +995,12 @@ public final class RegexParser<A, C> {
   }
 
   /**
-   * Parse a positive (possibly empty) decimal integer from the input
+   * Parse a (possibly empty) non-negative decimal integer from the input
    */
   private int parseDecimalInteger() throws PatternSyntaxException {
     long integer = 0;
     int peekedChar;
+
     while ((peekedChar = peekChar()) != -1) {
       // Try to read another decimal character
       final int d = Character.digit(peekedChar, 10);
@@ -1001,6 +1015,7 @@ public final class RegexParser<A, C> {
       }
       skipChar();
     }
+
     return (int) integer;
   }
 

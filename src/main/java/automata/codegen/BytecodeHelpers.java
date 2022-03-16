@@ -8,10 +8,10 @@ import org.objectweb.asm.Type;
 /**
  * Superclass containing a bunch of utility methods for emitting bytecode.
  *
- * Some of the utilities could be easily replaced with a single method call on
- * {@code MethodVisitor}, but their benefit is that they emit shorter bytecode.
- * Method bodies are limited in length by the fact the code array must have
- * length fitting in an unsigned 16-bit number. Consequently, we have an
+ * <p>Some of the utilities could be easily replaced with a single method call
+ * on {@code MethodVisitor}, but their benefit is that they emit shorter
+ * bytecode. Method bodies are limited in length by the fact the code array must
+ * have length fitting in an unsigned 16-bit number. Consequently, we have an
  * incentive to detect places where we can emit equivalent but shorter bytecode.
  *
  * @author Alec Theriault
@@ -67,8 +67,8 @@ class BytecodeHelpers {
   /**
    * Generate bytecode equivalent to `lookupswitch`, but possibly more compact.
    *
-   * Equivalent to {@code mv.visitLookupSwitchInsn(dflt, values, labels)}, but
-   * possibly shorter. {@code lookupswitch} in particular is a very long
+   * <p>Equivalent to {@code mv.visitLookupSwitchInsn(dflt, values, labels)},
+   * but possibly shorter. {@code lookupswitch} in particular is a very long
    * bytecode instruction.
    *
    * @param dflt label to jump to if nothing else matches
@@ -114,8 +114,8 @@ class BytecodeHelpers {
   /**
    * Push an integer constant onto the stack.
    *
-   * Equivalent to {@code mv.visitLdcInsn(constant)}, but possibly shorter and
-   * ideally not consuming a slot in the constants table.
+   * <p>Equivalent to {@code mv.visitLdcInsn(constant)}, but possibly shorter
+   * and ideally not consuming a slot in the constants table.
    *
    * @param constant integer constant
    */

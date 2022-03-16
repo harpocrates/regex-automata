@@ -70,8 +70,9 @@ public class Tdfa implements DotGraph<Integer, TdfaTransition> {
    * This controls the simulation behaviour when in an accepting state and
    * finding no matching transition for the next code unit.
    *
-   * If {@link FULL}, the simulation behaviour is to fail. If {@code PREFIX},
-   * the simulation behaviour is to use the final transition.
+   * If {@link MatchMode#FULL}, the simulation behaviour is to fail. If
+   * {@code MatchMode.PREFIX}, the simulation behaviour is to use the final
+   * transition.
    */
   public final MatchMode mode;
 

@@ -8,7 +8,8 @@ import automata.util.IntRangeSet;
 /**
  * Interpret character classes into range sets of unicode code points.
  *
- * The outputs of this visitor should be subsets of {@link #UNICODE_RANGE}.
+ * <p>Any set returned from this visitor should be a subset of
+ * {@link CodePoints#UNICODE_RANGE}.
  *
  * @author Alec Theriault
  */

@@ -26,7 +26,6 @@ public interface GroupLocation {
    * Location at a fixed distance from another group marker.
    *
    * @param relativeTo which group marker is the position relative to?
-   * @param unavoidable must this location (and the marker) be traversed in any match?
    * @param distance how far is this location from the marker?
    */
   public record RelativeToGroup(

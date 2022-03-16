@@ -10,9 +10,10 @@ public interface CharClassVisitor<C> {
   /**
    * Matches a single abstract character.
    *
-   * An abstract character is represented by its unicode code point. Note that
-   * this is not equivalent to a Java `char`, which is instead a code unit (and
-   * where unicode code points get encoded as one or two code units in UTF-16).
+   * <p>An abstract character is represented by its unicode code point. Note
+   * that this is not equivalent to a Java {@code char}, which is instead a
+   * code unit (and where unicode code points get encoded as one or two UTF-16
+   * code units).
    *
    * @param codePoint unicode code point to match
    */
@@ -36,7 +37,7 @@ public interface CharClassVisitor<C> {
   /**
    * Matches characters in either class.
    *
-   * Note that "union" in a character class has no symbolic operator - classes
+   * <p>The "union" in a character class has no symbolic operator - classes
    * are implicitly unioned. Unlike a regular expression union, this _is_
    * symmetric.
    *

@@ -36,8 +36,8 @@ abstract public class DfaMatcher extends ArrayMatchResult {
   /**
    * Whether the last matching operation was successful.
    *
-   * If this is {@code false}, then methods extracting match results will throw
-   * and illegal state exception.
+   * <p>If this is {@code false}, then methods extracting match results will
+   * throw an illegal state exception.
    */
   protected boolean successfulMatch = false;
 

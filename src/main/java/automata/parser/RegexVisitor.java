@@ -18,7 +18,7 @@ public interface RegexVisitor<R, C> extends CharClassVisitor<C> {
   /**
    * Matches any character inside the character class.
    *
-   * @param charClassVisitor character class sub-AST
+   * @param characterClass character class sub-AST
    */
   R visitCharacterClass(C characterClass);
 
@@ -33,7 +33,7 @@ public interface RegexVisitor<R, C> extends CharClassVisitor<C> {
   /**
    * Matches a union of two patterns.
    *
-   * This is not a symmetric operation; if both sides match but they have
+   * <p>This is not a symmetric operation; if both sides match but they have
    * different capture-group effects, those of the left-hand side will be the
    * ones taken in the match.
    *

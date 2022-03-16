@@ -8,29 +8,29 @@ import java.util.stream.Stream;
 /**
  * Array-backed match result.
  *
- * This is designed to be minimal: it includes only a reference to the initial
- * source text and an array of the starts and ends of capture groups.
+ * <p>This is designed to be minimal: it includes only a reference to the
+ * initial source text and an array of the starts and ends of capture groups.
  */
 public class ArrayMatchResult implements MatchResult {
 
   /**
    * Source text against which the regular expression was run.
    *
-   * This is not defensively copied on construction, so it will reflect updates
-   * that occur after the match result is constructed.
+   * <p>This is not defensively copied on construction, so it will reflect
+   * updates that occur after the match result is constructed.
    */
   protected final CharSequence input;
 
   /**
    * Offsets of start/end groups in the source text.
    *
-   * Length is equal to {@code 2 * (groupCount + 1)}.
+   * <p>Length is equal to {@code 2 * (groupCount + 1)}.
    *
-   * Offsets for the start of capture groups are stored at even indices while
+   * <p>Offsets for the start of capture groups are stored at even indices while
    * offsets for the end of capture groups are stored at odd indices. Start
    * offsets are inclusive and end offsets are not inclusive.
    *
-   * There is always at least one start and end offset (representing where the
+   * <p>There is always at least one start and end offset (representing where the
    * pattern started and ended matching).
    */
   protected final int[] groups;

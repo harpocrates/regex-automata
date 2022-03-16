@@ -8,7 +8,7 @@ import java.util.Collections;
 /**
  * Basic block inside a control-flow graph.
  *
- * This gets used for liveness and reachability analysis (which are in turn
+ * <p>This gets used for liveness and reachability analysis (which are in turn
  * used for dead store elimination and pruning of states which cannot reach
  * accepting states).
  *

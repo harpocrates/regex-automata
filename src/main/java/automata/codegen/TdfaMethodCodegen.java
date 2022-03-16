@@ -30,8 +30,8 @@ import org.objectweb.asm.Opcodes;
 /**
  * Functionality for generating the body of a TDFA matching/checking function.
  *
- * This uses the natural mapping of a tagged DFA into the control-flow graph of
- * the bytecode method: states are represented by blocks with transitions
+ * <p>This uses the natural mapping of a tagged DFA into the control-flow graph
+ * of the bytecode method: states are represented by blocks with transitions
  * encoded as jumps to other blocks. Tag commands in the DFA have a natural
  * mapping too: they turn into code that gets executed before jumping to the
  * target state.
@@ -74,8 +74,8 @@ class TdfaMethodCodegen extends BytecodeHelpers {
    * Offset for argument of type {@code int} corresponding to the maximum
    * offset in the input string.
    *
-   * If the entire input string is being matched, this can be set to the length
-   * of the input string.
+   * <p>If the entire input string is being matched, this can be set to the
+   * length of the input string.
    */
   private final int maxOffsetLocal;
 
@@ -99,7 +99,7 @@ class TdfaMethodCodegen extends BytecodeHelpers {
   /**
    * Labels associated with DFA states.
    *
-   * Each DFA state has a label and going to a new state is as simple as
+   * <p>Each DFA state has a label and going to a new state is as simple as
    * jumping to that label. This map is unmodifiable.
    */
   private final Map<Integer, Label> stateLabels;
@@ -117,7 +117,7 @@ class TdfaMethodCodegen extends BytecodeHelpers {
   /**
    * Set of fixed classes still needing to be processed.
    *
-   * Since some classes get handled at the beginning vs. end of the match and
+   * <p>Since some classes get handled at the beginning vs. end of the match and
    * some classes could be anchored against either the beginning or end, it
    * helps to maintain a set of fixed classes not yet processed.
    */
@@ -310,9 +310,9 @@ class TdfaMethodCodegen extends BytecodeHelpers {
   /**
    * Emit code for the {@link #returnSuccess} block.
    *
-   * This is nominally about preparing the match object, but most of the work
+   * <p>This is nominally about preparing the match object, but most of the work
    * is filling in untracked group markers that are at fixed positions from
-   * group markers that _are_ tracked.
+   * group markers that <em>are</em> tracked.
    */
   private void visitReturnSuccess() {
     mv.visitLabel(returnSuccess);
@@ -389,32 +389,41 @@ class TdfaMethodCodegen extends BytecodeHelpers {
   /**
    * Generate the branching logic associated with a state transition.
    *
-   * This is tricky because there are a lot of ways to do this (and there's not
-   * even an obvious way to rank the strategies since we're gunning for small
-   * bytecode output as well as fast execution). The approach currently taken
-   * is:
+   * <p>This is tricky because there are a lot of ways to do this (and there's
+   * not even an obvious way to rank the strategies since we're gunning for
+   * small bytecode output as well as fast execution). The approach currently
+   * taken is:
    *
-   *   - list out all of the ranges in all of the transitions and split them
+   * <ul>
+   *   <li>
+   *     list out all of the ranges in all of the transitions and split them
    *     into those that are "small" and those that are "large" (threshold is
    *     set to {@code smallRangeThresholdSize})
    *
-   *   - small transitions all get fed into one branching construct (usually a
+   *   <li>
+   *     small transitions all get fed into one branching construct (usually a
    *     {@code lookupswitch}, but {@code visitLookupBranch} helps generate
    *     efficient code for simpler cases).
    *
-   *   - large transitions get grouped based on their target labels and are
+   *   <li>
+   *     large transitions get grouped based on their target labels and are
    *     then "tried" in order. Each group gets tried sequentially using range
    *     checks (some effort is made to minimize the number of jumps).
+   * </ul>
    *
-   * Some ideas for optimization to try:
+   * <p>Some ideas for optimization to try:
    *
-   *   - Keeping track of values that are no longer reachable. For example,
+   * <ul>
+   *   <li>
+   *     Keeping track of values that are no longer reachable. For example,
    *     a simple negation such as {@code [^l]} doesn't need to match
    *     {@code U+0-k} and {@code m-U+10FFFF} separately if {@code l} has
    *     already been ruled out.
    *
-   *   - Building a binary search tree of decisions for finding the range
+   *   <li>
+   *     Building a binary search tree of decisions for finding the range
    *     containing the scrutinee.
+   * </ul>
    *
    * @param transitionsMap transitions out of the current state
    * @param finalCommandsOpt final commands to run if out of input (otherwise fail)

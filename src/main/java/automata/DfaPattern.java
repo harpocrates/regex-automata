@@ -16,7 +16,7 @@ import org.objectweb.asm.Opcodes;
 /**
  * DFA-backed regular expression pattern.
  *
- * This aspires to have an interface and semantics similar to {@code Pattern}
+ * <p>This aspires to have an interface and semantics similar to {@code Pattern}
  * and {@code Matcher} from the JDK's {@code java.util.regex}, but with better
  * algorithmic complexity and much faster constant overheads. On the flip side,
  * compilation of the pattern may take longer, it may use more memory, and some
@@ -35,8 +35,8 @@ abstract public class DfaPattern {
   /**
    * Compiles the given regular expression into an efficient pattern.
    *
-   * The output will generate a fresh subclass where the matching methods use
-   * DFAs that encode state transitions directly with `GOTO`.
+   * <p>The output will generate a fresh subclass where the matching methods use
+   * DFAs that encode state transitions directly with {@code GOTO}.
    *
    * @param regex source of the pattern
    * @return compiled DFA pattern
@@ -50,7 +50,7 @@ abstract public class DfaPattern {
    * Compiles the given regular expression into an efficient, but interpreted
    * pattern.
    *
-   * This functions like {@link #compile(String regex)}, but the DFAs are
+   * <p>This functions like {@link #compile(String regex)}, but the DFAs are
    * walked inside a (small and still efficient) interpreter. No bytecode is
    * generated.
    *

@@ -8,6 +8,7 @@ lazy val root = (project in file("."))
     autoScalaLibrary := false,
     name := "regex-automata",
     javacOptions += "-Xlint",
+    Compile / doc / javacOptions -= "-Xlint",
     scalacOptions ++= Seq(
       "-encoding", "utf8",
       "-deprecation",

@@ -38,7 +38,7 @@ class RegexParserErrorsSpec extends AnyFunSpec {
   describe("mismatched braces") {
     testParseError(
       "a{1",
-      description = "Expected `}` to close repetition",
+      description = "Expected `}` to close repetition (opened at 1)",
       index = 3
     )
   }
@@ -177,27 +177,27 @@ class RegexParserErrorsSpec extends AnyFunSpec {
       testParseError(
         "\\p{blk=NotABlock}",
         description = "Unknown unicode block: NotABlock",
-        index = 17
+        index = 7
       )
       testParseError(
         "\\p{sc=NotAScript}",
         description = "Unknown unicode script: NotAScript",
-        index = 17
+        index = 6
       )
       testParseError(
         "\\p{other=NotAProperty}",
         description = "Unknown property class key: other",
-        index = 22
+        index = 3
       )
       testParseError(
         "\\p{InNotABlock}",
         description = "Unknown unicode block: NotABlock",
-        index = 15
+        index = 3
       )
       testParseError(
         "\\p{IsNotAScript}",
         description = "Unknown unicode script: NotAScript",
-        index = 16
+        index = 3
       )
     }
 

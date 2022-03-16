@@ -6,8 +6,8 @@ import java.util.stream.IntStream;
 /**
  * Inclusive (and therefore non-empty) range of integers.
  *
- * Unless otherwise stated, `null` values of `IntRange` get treated as
- * empty ranges.
+ * <p>Unless otherwise stated, {@code null} values of {@link IntRange} get
+ * treated as empty ranges.
  *
  * @author Alec Theriault
  * @param lowerBound smallest integer in the range
@@ -68,8 +68,8 @@ public record IntRange(
   /**
    * Returns a stream of all of the integers in this range.
    *
-   * Indices are returned in order and the size of the stream matches with the
-   * cardinality returned by {@code size} method.
+   * <p>Indices are returned in order and the size of the stream matches with
+   * the cardinality returned by {@code size} method.
    *
    * @return stream of integers in the range
    */
@@ -110,10 +110,11 @@ public record IntRange(
   /**
    * Try to merge this range with another range.
    *
-   * If the ranges are not overlapping or consecutive, returns `null` to signify failure
+   * <p>If the ranges are not overlapping or consecutive, returns {@code null}
+   * to signify failure
    *
-   * @param other other range (`null` gets treated as an empty range)
-   * @return merged ranged, or else `null` if the ranges cannot be merged
+   * @param other other range
+   * @return merged ranged, or else {@code null} if the ranges cannot be merged
    */
   public IntRange merge(IntRange other) {
     if (other == null) {
@@ -134,7 +135,7 @@ public record IntRange(
    * If the ranges are not overlapping or consecutive, returns {@code null}
    * to signify failure.
    *
-   * @param other other range ({@code null} gets treated as an empty range)
+   * @param other other range
    * @return intersected range, or {@code null} if there is no intersection
    */
   public IntRange intersect(IntRange other) {

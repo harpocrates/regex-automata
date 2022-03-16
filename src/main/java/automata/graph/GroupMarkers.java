@@ -13,20 +13,22 @@ import java.util.OptionalInt;
  * Collection of group markers, grouped along equivalence classes that are a
  * fixed distance from each other.
  *
- * One of the ways to reduce the number of commands that are in a TDFA is to
+ * <p>One of the ways to reduce the number of commands that are in a TDFA is to
  * reduce the number of group markers being tracked. This is possible since
  * group markers are often located at fixed distances from other groups, from
  * the start of the input, or from the end of the input.
  *
- * For example, consider the pattern {@code (a(b*)(c*)a)} which has 3 groups
+ * <p>For example, consider the pattern {@code (a(b*)(c*)a)} which has 3 groups
  * (the outer group is explicit here, although it is usually implicit). Out of
  * these tags:
  *
- *   - {@code S0} and {@code S1} are 0 and 1 away from the start of the input
- *   - {@code E1} and {@code S2} are equal
- *   - {@code E0} and {@code E2} are 0 and -1 away from the end of the input
+ * <ul>
+ *   <li>{@code S0} and {@code S1} are 0 and 1 away from the start of the input
+ *   <li>{@code E1} and {@code S2} are equal
+ *   <li>{@code E0} and {@code E2} are 0 and -1 away from the end of the input
+ * </ul>
  *
- * This means that if this is running with a fixed start/end offset, only
+ * <p>This means that if this is running with a fixed start/end offset, only
  * {@code E1} or {@code S2} has to be tracked in the TDFA: every other marker's
  * position can be derived!
  */
@@ -35,7 +37,7 @@ public class GroupMarkers {
   /**
    * Mapping from groups to their fixed group classes.
    *
-   * Every member and representative of a class must be in this map and point
+   * <p>Every member and representative of a class must be in this map and point
    * to the class.
    */
   Map<GroupMarker, FixedClass> groupClasses = new HashMap<>();
@@ -48,7 +50,7 @@ public class GroupMarkers {
   /**
    * Fixed group class which has a non-empty distance from start of input.
    *
-   * There can be at most one class with {@code distanceToStart} non-empty,
+   * <p>There can be at most one class with {@code distanceToStart} non-empty,
    * and this field must have a reference to it.
    */
   FixedClass startClass = null;
@@ -56,7 +58,7 @@ public class GroupMarkers {
   /**
    * Fixed group class which has a non-empty distance to end of input.
    *
-   * There can be at most one class with {@code distanceToEnd} non-empty,
+   * <p>There can be at most one class with {@code distanceToEnd} non-empty,
    * and this field must have a reference to it.
    */
   FixedClass endClass = null;
@@ -65,6 +67,33 @@ public class GroupMarkers {
    * Equivalence class of tags fixed distances away from each other.
    */
   public class FixedClass {
+
+    public String compactString() {
+      final var builder = new StringBuilder();
+      builder.append("{ ");
+      builder.append(representative.compactString());
+
+      for (final var member : memberDistances.entrySet()) {
+        builder.append(", ");
+        builder.append(member.getKey().compactString());
+        builder.append(":");
+        builder.append(member.getValue());
+      }
+
+      distanceToStart.ifPresent((int dist) -> {
+        builder.append(", ^:");
+        builder.append(dist);
+      });
+
+      distanceToEnd.ifPresent((int dist) -> {
+        builder.append(", ^:");
+        builder.append(dist);
+      });
+
+      builder.append(" }");
+
+      return builder.toString();
+    }
 
     /**
      * Representative of the class.
@@ -90,7 +119,7 @@ public class GroupMarkers {
      * Members of the class along with the distance from the representative to
      * the member.
      *
-     * Does not include the representative as a key.
+     * <p>Does not include the representative as a key.
      */
     public HashMap<GroupMarker, Integer> memberDistances = new HashMap<>();
 
@@ -171,7 +200,8 @@ public class GroupMarkers {
   /**
    * Add a group marker a fixed distance away from the start/end of the input.
    *
-   * This can be called at most twice: once for the start and once for the end.
+   * <p>This can be called at most twice: once for the start and once for the
+   * end.
    *
    * @param group fixed group marker (possibly previously seen)
    * @param distance how far the group is from/to the start/end
