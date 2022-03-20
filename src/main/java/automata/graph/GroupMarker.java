@@ -38,6 +38,11 @@ public record GroupMarker(
     return (isStart ? "S" : "E") + groupIndex;
   }
 
+  @Override
+  public String toString() {
+    return "GroupMarker[" + compactString() + "]";
+  }
+
   public int arrayOffset() {
     return isStart ? 2 * groupIndex : 2 * groupIndex + 1;
   }

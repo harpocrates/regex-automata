@@ -149,14 +149,13 @@ final public class Tnfa implements DotGraph<Integer, TnfaTransition> {
       Optional<GroupLocation> fixedTag,
       Integer to
     ) {
+      groupMarkers.addFreshGroup(marker, unavoidable);
       if (fixedTag.isPresent()) {
         if (fixedTag.get() instanceof GroupLocation.Absolute a) {
-          groupMarkers.addAbsoluteFixedGroup(marker, a.distance(), a.relativeToStart());
+          groupMarkers.recordDistanceToEndpoint(marker, a.distance(), a.relativeToStart());
         } else if (fixedTag.get() instanceof GroupLocation.RelativeToGroup r) {
-          groupMarkers.addRelativeFixedGroup(marker, r.distance(), unavoidable, r.relativeTo());
+          groupMarkers.recordFixedDistance(marker, r.distance(), r.relativeTo());
         }
-      } else {
-        groupMarkers.addGroup(marker, unavoidable);
       }
       transitions.addLast(new BufferedTransition(from, marker, to));
     }
@@ -192,7 +191,7 @@ final public class Tnfa implements DotGraph<Integer, TnfaTransition> {
       if (initialNfaState.fixedGroup().isPresent()) {
         final var initialFixedGroup = initialNfaState.fixedGroup().get();
         if (initialFixedGroup instanceof GroupLocation.RelativeToGroup relative) {
-          groupMarkers.addAbsoluteFixedGroup(relative.relativeTo(), relative.distance(), true);
+          groupMarkers.recordDistanceToEndpoint(relative.relativeTo(), relative.distance(), true);
         }
       }
 

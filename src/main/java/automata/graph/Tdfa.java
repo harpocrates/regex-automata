@@ -64,7 +64,7 @@ public class Tdfa implements DotGraph<Integer, TdfaTransition> {
   /**
    * Capture groups in the TDFA.
    */
-  public final GroupMarkers groupMarkers;
+  public final GroupMarkers.FixedClasses fixedGroupClasses;
 
   /**
    * This controls the simulation behaviour when in an accepting state and
@@ -80,13 +80,13 @@ public class Tdfa implements DotGraph<Integer, TdfaTransition> {
     Map<Integer, Map<CodeUnitTransition, TaggedTransition>> states,
     Map<Integer, List<TagCommand>> finalStates,
     int initialState,
-    GroupMarkers groupMarkers,
+    GroupMarkers.FixedClasses fixedGroupClasses,
     MatchMode mode
   ) {
     this.states = states;
     this.finalStates = finalStates;
     this.initialState = initialState;
-    this.groupMarkers = groupMarkers;
+    this.fixedGroupClasses = fixedGroupClasses;
     this.mode = mode;
   }
 
@@ -111,7 +111,7 @@ public class Tdfa implements DotGraph<Integer, TdfaTransition> {
     int position = startOffset;
     final var registers = new HashMap<Register, Integer>();
 
-    if (groups.length != groupMarkers.groupCount() * 2) {
+    if (groups.length != fixedGroupClasses.groupCount * 2) {
       throw new IllegalArgumentException("groups array has the wrong size");
     }
 
@@ -168,36 +168,26 @@ public class Tdfa implements DotGraph<Integer, TdfaTransition> {
       command.interpret(registers, position, printDebugInfo);
     }
 
-    // Construct the match
-    for (var trackedGroup : groupMarkers.trackedGroupMarkers(mode)) {
-      groups[trackedGroup.arrayOffset()] = registers.getOrDefault(trackedGroup, -1);
+    // Fill in the location of all markers
+    for (final var fixed : fixedGroupClasses.fixedToStart.entrySet()) {
+      groups[fixed.getKey().arrayOffset()] = startOffset - fixed.getValue();
     }
-    for (final var fixedClass : groupMarkers.classes()) {
-      final var members = new HashSet<>(fixedClass.memberDistances.entrySet());
+    for (final var fixed : fixedGroupClasses.fixedToEnd.entrySet()) {
+      groups[fixed.getKey().arrayOffset()] = endOffset - fixed.getValue();
+    }
+    for (final var fixedClass : fixedGroupClasses.fixedToMarker.entrySet()) {
+      final GroupMarker representative = fixedClass.getKey();
+      final int representativeOffset = registers.getOrDefault(representative, -1);
+      groups[representative.arrayOffset()] = representativeOffset;
 
-      // Look up where the class representative is
-      int representativeMarker;
-      if (fixedClass.distanceToStart.isPresent()) {
-        final int distanceToStart = fixedClass.distanceToStart.getAsInt();
-        representativeMarker = startOffset + distanceToStart;
-        members.add(new SimpleImmutableEntry<>(fixedClass.representative, -distanceToStart));
-      } else if (fixedClass.distanceToEnd.isPresent() && mode == MatchMode.FULL) {
-        final int distanceToEnd = fixedClass.distanceToEnd.getAsInt();
-        representativeMarker = endOffset + distanceToEnd;
-        members.add(new SimpleImmutableEntry<>(fixedClass.representative, distanceToEnd));
-      } else {
-        representativeMarker = groups[fixedClass.representative.arrayOffset()];
+      if (representativeOffset == -1 && fixedGroupClasses.unavoidable.contains(representative)) {
+        throw new IllegalStateException("Class " + representative + " should be unavoidable");
       }
 
-      if (representativeMarker == -1 && fixedClass.unavoidable) {
-        throw new IllegalStateException("Class " + fixedClass.representative + " should be unavoidable");
-      }
-
-      // Fill in the locations of all members of the class
-      for (final var member : members) {
-        groups[member.getKey().arrayOffset()] = representativeMarker == -1
+      for (final var fixed : fixedClass.getValue().entrySet()) {
+        groups[fixed.getKey().arrayOffset()] = representativeOffset == -1
           ? -1
-          : representativeMarker + member.getValue();
+          : representativeOffset - fixed.getValue();
       }
     }
 
@@ -210,7 +200,7 @@ public class Tdfa implements DotGraph<Integer, TdfaTransition> {
    * @return number of capture groups in the DFA.
    */
   public int groupCount() {
-    return groupMarkers.groupCount() - 1;
+    return fixedGroupClasses.groupCount - 1;
   }
 
   /**
@@ -377,8 +367,8 @@ public class Tdfa implements DotGraph<Integer, TdfaTransition> {
    */
   public static Tdfa fromTnfa(Tnfa nfa, MatchMode mode, boolean optimized) {
 
-    final GroupMarkers groupMarkers = nfa.groupMarkers;
-    final Set<GroupMarker> trackedGroupMarkers = groupMarkers.trackedGroupMarkers(mode);
+    final GroupMarkers.FixedClasses fixedGroupClasses = nfa.groupMarkers.fixedClasses(mode);
+    final Set<GroupMarker> trackedGroupMarkers = fixedGroupClasses.fixedToMarker.keySet();
 
     // Fresh TDFA states come from here
     final IntSupplier dfaStateIdSupplier = new IntSupplier() {
@@ -713,7 +703,7 @@ public class Tdfa implements DotGraph<Integer, TdfaTransition> {
       states,
       finalStates,
       initialState,
-      groupMarkers,
+      fixedGroupClasses,
       mode
     );
 
@@ -793,7 +783,7 @@ public class Tdfa implements DotGraph<Integer, TdfaTransition> {
     }
 
     // Add in final transition blocks (TODO: reduce code duplication)
-    final var trackedGroupMarkers = groupMarkers.trackedGroupMarkers(mode);
+    final var trackedGroupMarkers = fixedGroupClasses.fixedToMarker.keySet();
     for (var entry : finalStates.entrySet()) {
       final var fromBlock = stateBlocks.get(entry.getKey());
       final var commands = entry.getValue();
@@ -931,7 +921,7 @@ public class Tdfa implements DotGraph<Integer, TdfaTransition> {
       newStates,
       newFinalStates,
       newInitialState,
-      groupMarkers,
+      fixedGroupClasses,
       mode
     );
   }

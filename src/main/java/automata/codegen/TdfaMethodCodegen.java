@@ -114,15 +114,6 @@ class TdfaMethodCodegen extends BytecodeHelpers {
    */
   private final Label returnFailure;
 
-  /**
-   * Set of fixed classes still needing to be processed.
-   *
-   * <p>Since some classes get handled at the beginning vs. end of the match and
-   * some classes could be anchored against either the beginning or end, it
-   * helps to maintain a set of fixed classes not yet processed.
-   */
-  private final HashSet<GroupMarkers.FixedClass> fixedClasses;
-
   public TdfaMethodCodegen(
     MethodVisitor mv,
     Tdfa dfa,
@@ -155,8 +146,6 @@ class TdfaMethodCodegen extends BytecodeHelpers {
       .collect(Collectors.toUnmodifiableMap(Function.identity(), s -> new Label()));
     this.returnSuccess = new Label();
     this.returnFailure = new Label();
-
-    this.fixedClasses = new HashSet<>(dfa.groupMarkers.classes());
   }
 
 
@@ -234,62 +223,42 @@ class TdfaMethodCodegen extends BytecodeHelpers {
 
     // Fill in group markers whose position is anchored on the start/end offsets (TODO: do this at end?)
     mv.visitVarInsn(Opcodes.ALOAD, groupsLocal);
-    dfa.groupMarkers.startClass().ifPresent((GroupMarkers.FixedClass startClass) -> {
-      if (!fixedClasses.remove(startClass)) {
-        return;
+    for (var fixedGroup : dfa.fixedGroupClasses.fixedToStart.entrySet()) {
+      final GroupMarker forGroup = fixedGroup.getKey();
+
+      // Prepare for `iastore` assigning to the fixed group
+      mv.visitInsn(Opcodes.DUP);
+      visitConstantInt(forGroup.arrayOffset());
+
+      // Compute the offset
+      mv.visitIntInsn(Opcodes.ILOAD, offsetLocal);
+      final int increment = -fixedGroup.getValue();
+      if (increment != 0) {
+        visitConstantInt(increment);
+        mv.visitInsn(Opcodes.IADD);
       }
 
-      final int distanceToStart = startClass.distanceToStart.getAsInt();
-      final var fixedToStart = new HashSet<>(startClass.memberDistances.entrySet());
-      fixedToStart.add(new SimpleImmutableEntry<>(startClass.representative, -distanceToStart));
+      // Store the fixed group
+      mv.visitInsn(Opcodes.IASTORE);
+    }
+    for (var fixedGroup : dfa.fixedGroupClasses.fixedToEnd.entrySet()) {
+      final GroupMarker forGroup = fixedGroup.getKey();
 
-      for (var fixedGroup : fixedToStart) {
-        final GroupMarker forGroup = fixedGroup.getKey();
+      // Prepare for `iastore` assigning to the fixed group
+      mv.visitInsn(Opcodes.DUP);
+      visitConstantInt(forGroup.arrayOffset());
 
-        // Prepare for `iastore` assigning to the fixed group
-        mv.visitInsn(Opcodes.DUP);
-        visitConstantInt(forGroup.arrayOffset());
-
-        // Compute the offset
-        mv.visitIntInsn(Opcodes.ILOAD, offsetLocal);
-        final int increment = fixedGroup.getValue() + distanceToStart;
-        if (increment != 0) {
-          visitConstantInt(increment);
-          mv.visitInsn(Opcodes.IADD);
-        }
-
-        // Store the fixed group
-        mv.visitInsn(Opcodes.IASTORE);
-      }
-    });
-    dfa.groupMarkers.endClass().ifPresent((GroupMarkers.FixedClass endClass) -> {
-      if (dfa.mode == MatchMode.PREFIX || !fixedClasses.remove(endClass)) {
-        return;
+      // Compute the offset
+      mv.visitIntInsn(Opcodes.ILOAD, maxOffsetLocal);
+      final int decrement = fixedGroup.getValue();
+      if (decrement != 0) {
+        visitConstantInt(decrement);
+        mv.visitInsn(Opcodes.ISUB);
       }
 
-      final int distanceToEnd = endClass.distanceToEnd.getAsInt();
-      final var fixedToEnd = new HashSet<>(endClass.memberDistances.entrySet());
-      fixedToEnd.add(new SimpleImmutableEntry<>(endClass.representative, distanceToEnd));
-
-      for (var fixedGroup : fixedToEnd) {
-        final GroupMarker forGroup = fixedGroup.getKey();
-
-        // Prepare for `iastore` assigning to the fixed group
-        mv.visitInsn(Opcodes.DUP);
-        visitConstantInt(forGroup.arrayOffset());
-
-        // Compute the offset
-        mv.visitIntInsn(Opcodes.ILOAD, maxOffsetLocal);
-        final int increment = fixedGroup.getValue() + distanceToEnd;
-        if (increment != 0) {
-          visitConstantInt(increment);
-          mv.visitInsn(Opcodes.IADD);
-        }
-
-        // Store the fixed group
-        mv.visitInsn(Opcodes.IASTORE);
-      }
-    });
+      // Store the fixed group
+      mv.visitInsn(Opcodes.IASTORE);
+    }
     mv.visitInsn(Opcodes.POP);
 
     // Temporary `char` variable
@@ -318,10 +287,12 @@ class TdfaMethodCodegen extends BytecodeHelpers {
     mv.visitLabel(returnSuccess);
 
     // Fill in group markers whose position is anchored on remaining classes
-    for (final var fixedClass : fixedClasses) {
+    final var fixedClasses = dfa.fixedGroupClasses;
+    for (final var fixedClass : fixedClasses.fixedToMarker.entrySet()) {
 
-      final GroupMarker trackedGroup = fixedClass.representative;
-      for (var fixedGroup : fixedClass.memberDistances.entrySet()) {
+      final GroupMarker trackedGroup = fixedClass.getKey();
+      final var unavoidable = fixedClasses.unavoidable.contains(trackedGroup);
+      for (var fixedGroup : fixedClass.getValue().entrySet()) {
         final GroupMarker forGroup = fixedGroup.getKey();
         final int distance = fixedGroup.getValue();
 
@@ -338,16 +309,16 @@ class TdfaMethodCodegen extends BytecodeHelpers {
         if (distance != 0) {
 
           // If the group is not unavoidable, we must only decrement if != -1
-          if (!fixedClass.unavoidable) {
+          if (!unavoidable) {
             final var afterDecrement = new Label();
             mv.visitInsn(Opcodes.DUP);
             mv.visitJumpInsn(Opcodes.IFLT, afterDecrement);
             visitConstantInt(distance);
-            mv.visitInsn(Opcodes.IADD);
+            mv.visitInsn(Opcodes.ISUB);
             mv.visitLabel(afterDecrement);
           } else {
             visitConstantInt(distance);
-            mv.visitInsn(Opcodes.IADD);
+            mv.visitInsn(Opcodes.ISUB);
           }
         }
 
@@ -355,7 +326,6 @@ class TdfaMethodCodegen extends BytecodeHelpers {
         mv.visitInsn(Opcodes.IASTORE);
       }
     }
-    fixedClasses.clear();
 
     // Print out the final output
     if (printDebugInfo) {

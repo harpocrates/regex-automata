@@ -87,6 +87,20 @@ class RegexSpec extends AnyFunSpec {
     )
   )
 
+  // Nested gropus
+  testMatching(
+    pattern = "(a(b))",
+    expectedGroupCount = 2,
+    inputs = ListMap(
+      "ab" ->  Some(List(
+        (0, 2, "ab"),
+        (1, 2, "b")
+      )),
+      "abc" -> None,
+      "a" -> None
+    )
+  )
+
   // Example from <https://www.labs.hpe.com/techreports/2012/HPL-2012-41R1.pdf>
   testMatching(
     pattern = "((a)*|b)(ab|b)",

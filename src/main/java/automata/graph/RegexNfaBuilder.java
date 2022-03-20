@@ -58,6 +58,8 @@ public abstract class RegexNfaBuilder<Q>
   /**
    * Register a new state with an empty start/end group transition out of it.
    *
+   * <p>This should only be called once per unique group marker.
+   *
    * @param state state to add
    * @param marker group marker
    * @param unavoidable is the group unavoidable during matching?
@@ -332,13 +334,13 @@ public abstract class RegexNfaBuilder<Q>
         final Q from = freshState();
         final boolean unavoidable = to.unavoidable();
 
+        addGroupState(argTo, end, unavoidable, to.fixedGroup(), to.state());
         final var toGroup = new GroupLocation.RelativeToGroup(end, 0);
         final NfaState<Q> argFrom = arg
           .apply(new NfaState<Q>(argTo, false, unavoidable, Optional.of(toGroup)));
+        addGroupState(from, start, unavoidable, argFrom.fixedGroup(), argFrom.state());
         final var fromGroup = new GroupLocation.RelativeToGroup(start, 0);
 
-        addGroupState(argTo, end, unavoidable, to.fixedGroup(), to.state());
-        addGroupState(from, start, unavoidable, argFrom.fixedGroup(), argFrom.state());
         return new NfaState<Q>(from, false, unavoidable, Optional.of(fromGroup));
       };
     } else {

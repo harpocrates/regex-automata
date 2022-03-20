@@ -55,8 +55,8 @@ public final class CompiledDfa {
     );
 
     // Reset matcher state and load TDFA method arguments
-    final BiConsumer<MethodVisitor, GroupMarkers> resetAndLoadTdfaArguments =
-      (MethodVisitor mv, GroupMarkers groupMarkers) -> {
+    final BiConsumer<MethodVisitor, GroupMarkers.FixedClasses> resetAndLoadTdfaArguments =
+      (MethodVisitor mv, GroupMarkers.FixedClasses fixedClasses) -> {
         mv.visitVarInsn(Opcodes.ALOAD, 0);
         mv.visitFieldInsn(Opcodes.GETFIELD, className, "input", "Ljava/lang/CharSequence;");
         mv.visitVarInsn(Opcodes.ALOAD, 0);
@@ -67,7 +67,7 @@ public final class CompiledDfa {
         mv.visitFieldInsn(Opcodes.GETFIELD, className, "groups", "[I");
 
         // Only fill the array with `-1` if at least one group marker class is avoidable
-        if (groupMarkers.classes().stream().anyMatch(c -> !c.unavoidable)) {
+        if (fixedClasses.unavoidable.size() != fixedClasses.groupCount * 2) {
           mv.visitInsn(Opcodes.DUP);
           mv.visitInsn(Opcodes.ICONST_M1);
           Method.FILLINT_M.invokeMethod(mv, Method.ARRAYS_CLASS_NAME);
@@ -118,7 +118,7 @@ public final class CompiledDfa {
       final var mv = Method.MATCHES_M.newMethod(cw, Opcodes.ACC_PUBLIC);
       mv.visitCode();
       mv.visitVarInsn(Opcodes.ALOAD, 0);
-      resetAndLoadTdfaArguments.accept(mv, matchesDfa.groupMarkers);
+      resetAndLoadTdfaArguments.accept(mv, matchesDfa.fixedGroupClasses);
       Method.MATCHESSTATIC_M.invokeMethod(mv, className);
       Method.POSTMATCHUPDATE_M.invokeMethod(mv, className);
       mv.visitInsn(Opcodes.IRETURN);
@@ -140,7 +140,7 @@ public final class CompiledDfa {
       final var mv = Method.LOOKINGAT_M.newMethod(cw, Opcodes.ACC_PUBLIC);
       mv.visitCode();
       mv.visitVarInsn(Opcodes.ALOAD, 0);
-      resetAndLoadTdfaArguments.accept(mv, lookingAtDfa.groupMarkers);
+      resetAndLoadTdfaArguments.accept(mv, lookingAtDfa.fixedGroupClasses);
       Method.LOOKINGATSTATIC_M.invokeMethod(mv, className);
       Method.POSTMATCHUPDATE_M.invokeMethod(mv, className);
       mv.visitInsn(Opcodes.IRETURN);
@@ -162,7 +162,7 @@ public final class CompiledDfa {
       final var mv = Method.FIND_M.newMethod(cw, Opcodes.ACC_PUBLIC);
       mv.visitCode();
       mv.visitVarInsn(Opcodes.ALOAD, 0);
-      resetAndLoadTdfaArguments.accept(mv, findDfa.groupMarkers);
+      resetAndLoadTdfaArguments.accept(mv, findDfa.fixedGroupClasses);
       Method.FINDSTATIC_M.invokeMethod(mv, className);
       Method.POSTMATCHUPDATE_M.invokeMethod(mv, className);
       mv.visitInsn(Opcodes.IRETURN);
