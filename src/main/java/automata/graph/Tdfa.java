@@ -827,7 +827,6 @@ public class Tdfa implements DotGraph<Integer, TdfaTransition> {
           somethingWasSimplified = true;
         } else if (command instanceof TagCommand.Copy copy) {
           // Update coalescing candidates
-          // Note: assign to is the RHS so it will get kept in coalescing ops
           coalescingCandidates.put(copy.copyFrom(), copy.assignTo());
         }
       }
@@ -840,7 +839,21 @@ public class Tdfa implements DotGraph<Integer, TdfaTransition> {
 
     // Try to coalesce variables
     for (final var entry : coalescingCandidates.entrySet()) {
-      if (interferenceGraph.coalesce(entry.getKey(), entry.getValue())) {
+
+      // We must keep group marker variables!
+      var toMerge = entry.getKey();
+      var toKeep = entry.getValue();
+      if (toMerge instanceof GroupMarker) {
+        if (!(toKeep instanceof GroupMarker)) {
+          var temp = toKeep;
+          toKeep = toMerge;
+          toMerge = temp;
+        } else {
+          continue;
+        }
+      }
+
+      if (interferenceGraph.coalesce(toMerge, toKeep)) {
         somethingWasSimplified = true;
       }
     }
