@@ -951,7 +951,7 @@ public class Tdfa implements DotGraph<Integer, TdfaTransition> {
 
     // Mapping from states that should be collapsed to the canonical state
     final Map<Integer, Integer> canonicalStates = new HashMap<>();
-    for (final SortedSet<Integer> partition : minimizedDfaPartition(false)) {
+    for (final SortedSet<Integer> partition : minimizedDfaPartition()) {
       final var canonical = partition.first();
       for (final var other : partition) {
         canonicalStates.put(other, canonical);
@@ -971,10 +971,9 @@ public class Tdfa implements DotGraph<Integer, TdfaTransition> {
    * This uses a variant of Hopcroft's algorithm, except that equivalence of
    * transitions includes the tags traversed (including final ones).
    *
-   * @param ignoreCommands only enable this if you intend to discard tags
    * @return a partition of the TDFA states
    */
-  public Set<SortedSet<Integer>> minimizedDfaPartition(boolean ignoreCommands) {
+  public Set<SortedSet<Integer>> minimizedDfaPartition() {
 
     record ReversedTaggedTransition(
       CodeUnitTransition codeUnit,
@@ -987,9 +986,7 @@ public class Tdfa implements DotGraph<Integer, TdfaTransition> {
       final int fromState = entry.getKey();
       for (final var transitions : entry.getValue().entrySet()) {
         final CodeUnitTransition codeUnit = transitions.getKey();
-        final Set<TagCommand> commands = ignoreCommands
-          ? Collections.emptySet()
-          : new HashSet<>(transitions.getValue().commands());
+        final Set<TagCommand> commands = new HashSet<>(transitions.getValue().commands());
         final int toState = transitions.getValue().targetState();
         reversedTransitions
           .computeIfAbsent(toState, k -> new HashMap<>())
@@ -1001,22 +998,18 @@ public class Tdfa implements DotGraph<Integer, TdfaTransition> {
     // Set up initial partition
     final var partition = new HashSet<SortedSet<Integer>>();
     final var sortedSetCollector = Collectors.<Integer, SortedSet<Integer>>toCollection(TreeSet::new);
-    if (ignoreCommands) {
-      partition.add(new TreeSet<Integer>(finalStates.keySet()));
-    } else {
-      partition.addAll(
-        finalStates
-          .entrySet()
-          .stream()
-          .collect(
-            Collectors.groupingBy(
-              Map.Entry::getValue,
-              Collectors.mapping(Map.Entry::getKey, sortedSetCollector)
-            )
+    partition.addAll(
+      finalStates
+        .entrySet()
+        .stream()
+        .collect(
+          Collectors.groupingBy(
+            Map.Entry::getValue,
+            Collectors.mapping(Map.Entry::getKey, sortedSetCollector)
           )
-          .values()
-      );
-    }
+        )
+        .values()
+    );
     partition.add(
       states
         .keySet()
