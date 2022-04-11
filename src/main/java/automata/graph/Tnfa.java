@@ -101,11 +101,12 @@ final public class Tnfa implements DotGraph<Integer, TnfaTransition> {
    */
   public static Tnfa parse(
     String pattern,
+    StandardCodeUnits codeUnits,
     int flags,
     boolean wrappingGroup,
     boolean wildcardPrefix
   ) throws PatternSyntaxException {
-    final var builder = new Builder();
+    final var builder = new Builder(codeUnits);
     final var visited = RegexParser.parse(
       builder,
       pattern,
@@ -117,6 +118,10 @@ final public class Tnfa implements DotGraph<Integer, TnfaTransition> {
   }
 
   public static class Builder extends RegexNfaBuilder<Integer> {
+    public Builder(StandardCodeUnits codeUnits) {
+      super(codeUnits);
+    }
+
     // Used to buffer up transitions
     record BufferedTransition(int from, TnfaTransition transition, int to) { }
 

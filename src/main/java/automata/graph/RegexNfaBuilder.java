@@ -6,13 +6,10 @@ import automata.parser.RegexVisitor;
 import automata.parser.CodePointSetVisitor;
 import automata.util.IntRange;
 import automata.util.IntRangeSet;
+import java.util.Stack;
 import java.util.Optional;
 import java.util.OptionalInt;
-import java.util.Map;
-import java.util.LinkedList;
-import java.util.HashMap;
 import java.util.function.UnaryOperator;
-import java.util.stream.Collectors;
 
 /**
  * Regex AST visitor which can be used to build up the corresponding NFA.
@@ -29,6 +26,15 @@ import java.util.stream.Collectors;
 public abstract class RegexNfaBuilder<Q>
     extends CodePointSetVisitor
     implements RegexVisitor<UnaryOperator<NfaState<Q>>, IntRangeSet> {
+
+  /**
+   * Code units to be used in the NFA.
+   */
+  public final StandardCodeUnits codeUnits;
+
+  public RegexNfaBuilder(StandardCodeUnits codeUnits) {
+    this.codeUnits = codeUnits;
+  }
 
   /**
    * Summon a fresh state identifier.
@@ -87,107 +93,56 @@ public abstract class RegexNfaBuilder<Q>
     return UnaryOperator.identity();
   }
 
-  /**
-   * Break down the input code point set into a mapping of low ranges to high
-   * ranges.
-   *
-   * The values in the output should be disjoint and union out to a subset of
-   * the high surrogate range. The values in the keys won't necessarily be
-   * disjoint, but they should all be in the low surrogate range. Since the
-   * high surrogate range is just {@code 0xD800–0xDBFF} (1024 values), the
-   * total size of the output map is at most 1024 entries.
-   *
-   * @param codePointSet input code point set
-   * @return mapping from low surrogate ranges to high surrogate ranges
-   */
-  public static Map<IntRangeSet, IntRangeSet> supplementaryCodeUnitRanges(
-    IntRangeSet codePointSet
-  ) {
-
-    // TODO: this doesn't need to be a map since we scan high codepoints in order
-    //       and only ever update the last one
-    final var supplementaryCodeUnits = new HashMap<Integer, LinkedList<IntRange>>();
-
-    for (IntRange range : codePointSet.difference(IntRangeSet.of(CodePoints.BMP_RANGE)).ranges()) {
-
-      int rangeStartHi = Character.highSurrogate(range.lowerBound());
-      int rangeStartLo = Character.lowSurrogate(range.lowerBound());
-
-      int rangeEndHi = Character.highSurrogate(range.upperBound());
-      int rangeEndLo = Character.lowSurrogate(range.upperBound());
-
-      if (rangeStartHi == rangeEndHi) {
-        // Add the _only_ range
-        supplementaryCodeUnits
-          .computeIfAbsent(rangeStartHi, k -> new LinkedList<>())
-          .addLast(IntRange.between(rangeStartLo, rangeEndLo));
-      } else {
-        // Add the first range
-        supplementaryCodeUnits
-          .computeIfAbsent(rangeStartHi, k -> new LinkedList<>())
-          .addLast(IntRange.between(rangeStartLo, Character.MAX_LOW_SURROGATE));
-
-        // Add the last range
-        supplementaryCodeUnits
-          .computeIfAbsent(rangeEndHi, k -> new LinkedList<>())
-          .addLast(IntRange.between(Character.MIN_LOW_SURROGATE, rangeEndLo));
-
-        // Add everything in between
-        for (int hi = rangeStartHi + 1; hi <= rangeEndHi - 1; hi++) {
-          supplementaryCodeUnits
-            .computeIfAbsent(hi, k -> new LinkedList<>())
-            .addLast(CodePoints.LOW_SURROGATE_RANGE);
-        }
-      }
-    }
-
-    return supplementaryCodeUnits
-      .entrySet()
-      .stream()
-      .collect(
-        Collectors.groupingBy(
-          e -> new IntRangeSet(e.getValue()),
-          Collectors.mapping(
-            e -> IntRangeSet.of(IntRange.single(e.getKey())),
-            Collectors.collectingAndThen(Collectors.toList(), IntRangeSet::union)
-          )
-        )
-      );
-  }
-
   public UnaryOperator<NfaState<Q>> visitCharacterClass(IntRangeSet codePointSet) {
     if (!codePointSet.difference(IntRangeSet.of(CodePoints.UNICODE_RANGE)).isEmpty()) {
       throw new IllegalArgumentException("Codepoints outside the unicode range aren't allowed");
     }
 
-    /* Code unit transitions corresponding to the basic multilingual plane.
-     * By definition of the BMP, this means these are exactly one code unit.
-     */
-    final var basicCodeUnits = codePointSet.intersection(IntRangeSet.of(CodePoints.BMP_RANGE));
-
-    /* Mapping from the first (high) 16-bit code unit to the range of second
-     * (low) 16-bit code units. There are `0xDBFF - 0xD800 + 1 = 1024` high
-     * code points, so this map will have between 0 and 1024 entries.
-     */
-    final var supplementaryCodeUnits = supplementaryCodeUnitRanges(codePointSet);
+    final var suffixTrie = codeUnits.codeUnitRangeSuffixTrie(codePointSet);
 
     // How many code units wide is the class?
-    final Optional<Integer> classSize =
-      supplementaryCodeUnits.isEmpty() ? Optional.of(1) :
-      basicCodeUnits.isEmpty() ? Optional.of(2) :
-      Optional.empty();
+    final Optional<Integer> classSize = suffixTrie.inSetDepth();
+
+    // Depth first traversal of the tree
+    record TraversalEntry<Q>(
+      TrieSet<IntRangeSet> subTrie,
+      int distanceToRoot,
+      IntRangeSet codeUnitToParent,
+      Q parentNode
+    ) { }
 
     return (NfaState<Q> toState) -> {
-      final Q to = toState.state();
-      final Q start = freshState();
-      if (!basicCodeUnits.isEmpty()) {
-        addCodeUnitsState(start, basicCodeUnits, to);
-      }
+      final var start = freshState();
 
-      for (var loAndHigh : supplementaryCodeUnits.entrySet()) {
-        final Q hiEnd = freshState();
-        addCodeUnitsState(start, loAndHigh.getValue(), hiEnd);
-        addCodeUnitsState(hiEnd, loAndHigh.getKey(), to);
+      // Depth first traversal of the suffix trie
+      final var toVisit = new Stack<TraversalEntry<Q>>();
+      for (final var childEntry : suffixTrie.children.entrySet()) {
+        toVisit.push(new TraversalEntry<>(
+          childEntry.getValue(),
+          1,
+          childEntry.getKey(),
+          toState.state()
+        ));
+      }
+      while (!toVisit.isEmpty()) {
+        final var entry = toVisit.pop();
+        final Q thisNode = entry.subTrie.inSet ? start : freshState();
+
+        // Visit this node
+        addCodeUnitsState(thisNode, entry.codeUnitToParent, entry.parentNode);
+        if (entry.subTrie.inSet && !entry.subTrie.children.isEmpty()) {
+          throw new IllegalStateException("One code unit sequence cannot be a suffix of another");
+        }
+
+        // Plan to visit children
+        for (final var childEntry : entry.subTrie.children.entrySet()) {
+          toVisit.push(new TraversalEntry<>(
+            childEntry.getValue(),
+            entry.distanceToRoot + 1,
+            childEntry.getKey(),
+            thisNode
+          ));
+        }
       }
 
       final var fixedGroup = toState
@@ -195,6 +150,7 @@ public abstract class RegexNfaBuilder<Q>
         .flatMap(loc -> classSize.map(loc::addDistance));
 
       return new NfaState<Q>(start, toState.insideRepetition(), toState.unavoidable(), fixedGroup);
+
     };
   }
 
