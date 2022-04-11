@@ -8,7 +8,7 @@ class Dot extends AnyFunSpec {
   val re = "((a)*|b)(ab|b)"
 
   describe(s"dot-graph for $re") {
-    val tnfa = Tnfa.parse(re, 0, true, false)
+    val tnfa = Tnfa.parse(re, StandardCodeUnits.UTF_16, 0, true, false)
     val tdfa = Tdfa.fromTnfa(tnfa, MatchMode.FULL, true)
 
     it("tnfa") {

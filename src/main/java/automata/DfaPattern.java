@@ -1,6 +1,7 @@
 package automata;
 
 import automata.codegen.CompiledDfa;
+import automata.graph.StandardCodeUnits;
 import automata.graph.MatchMode;
 import automata.graph.Tdfa;
 import automata.graph.Tnfa;
@@ -121,8 +122,8 @@ abstract public class DfaPattern {
       super(pattern);
 
       // NFAs
-      final Tnfa nfaWithoutWildcard = Tnfa.parse(pattern, flags, true, false);
-      final Tnfa nfaWithWildcard = Tnfa.parse(pattern, flags, true, true);
+      final Tnfa nfaWithoutWildcard = Tnfa.parse(pattern, StandardCodeUnits.UTF_16, flags, true, false);
+      final Tnfa nfaWithWildcard = Tnfa.parse(pattern, StandardCodeUnits.UTF_16, flags, true, true);
 
       // DFAs
       final Tdfa matchesDfa = Tdfa.fromTnfa(nfaWithoutWildcard, MatchMode.FULL, optimized);
@@ -235,8 +236,8 @@ abstract public class DfaPattern {
       super(pattern);
       this.printDebugInfo = printDebugInfo;
 
-      final Tnfa nfaWithoutWildcard = Tnfa.parse(pattern, flags, true, false);
-      final Tnfa nfaWithWildcard = Tnfa.parse(pattern, flags, true, true);
+      final Tnfa nfaWithoutWildcard = Tnfa.parse(pattern, StandardCodeUnits.UTF_16, flags, true, false);
+      final Tnfa nfaWithWildcard = Tnfa.parse(pattern, StandardCodeUnits.UTF_16, flags, true, true);
 
       this.matchesDfa = Tdfa.fromTnfa(nfaWithoutWildcard, MatchMode.FULL, optimized);
       this.lookingAtDfa = Tdfa.fromTnfa(nfaWithoutWildcard, MatchMode.PREFIX, optimized);
