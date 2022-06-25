@@ -34,12 +34,12 @@ object Re extends ReBuilder {
   }
 
   /** Matches a literal unicode codepoint */
-  final case class Character(codePoint: Int) extends CharClass {
+  final case class Character(codePoint: Int, flags: Int = 0) extends CharClass {
     override def toString(): String =
-      s"Character(${formatCodePoint(codePoint)})"
+      s"Character(${formatCodePoint(codePoint)}${if (flags != 0) s", $flags" else ""})"
 
     override def acceptCharClass[A](visitor: CharClassVisitor[A]): A =
-      visitor.visitCharacter(codePoint)
+      visitor.visitCharacter(codePoint, flags)
   }
   object Character {
     def apply(character: Char): Character =
@@ -108,12 +108,16 @@ object Re extends ReBuilder {
   }
 
   /** Range of characters */
-  final case class CharacterRange(fromCodePoint: Int, toCodePoint: Int) extends CharClass {
+  final case class CharacterRange(
+    fromCodePoint: Int,
+    toCodePoint: Int,
+    flags: Int = 0
+  ) extends CharClass {
     override def toString(): String =
       s"CharacterRange(${formatCodePoint(fromCodePoint)}, ${formatCodePoint(toCodePoint)})"
 
     override def acceptCharClass[A](visitor: CharClassVisitor[A]): A =
-      visitor.visitRange(fromCodePoint, toCodePoint)
+      visitor.visitRange(fromCodePoint, toCodePoint, flags)
   }
   object CharacterRange {
     def apply(start: Char, end: Char): CharacterRange =
@@ -146,27 +150,32 @@ object Re extends ReBuilder {
   }
 
   /** Builtin character class */
-  final case class BuiltinClass(cls: JBuiltinClass) extends CharClass {
+  final case class BuiltinClass(
+    cls: JBuiltinClass,
+    flags: Int = 0
+  ) extends CharClass {
     override def acceptCharClass[A](visitor: CharClassVisitor[A]): A =
-      visitor.visitBuiltinClass(cls)
+      visitor.visitBuiltinClass(cls, flags)
   }
 
   /** Unicode block class */
   final case class UnicodeBlockClass(
     block: UnicodeBlock,
-    negated: Boolean
+    negated: Boolean,
+    flags: Int = 0
   ) extends CharClass {
     override def acceptCharClass[A](visitor: CharClassVisitor[A]): A =
-      visitor.visitUnicodeBlock(block, negated)
+      visitor.visitUnicodeBlock(block, negated, flags)
   }
 
   /** Unicode script class */
   final case class UnicodeScriptClass(
     script: UnicodeScript,
-    negated: Boolean
+    negated: Boolean,
+    flags: Int = 0
   ) extends CharClass {
     override def acceptCharClass[A](visitor: CharClassVisitor[A]): A =
-      visitor.visitUnicodeScript(script, negated)
+      visitor.visitUnicodeScript(script, negated, flags)
   }
 
   def parse(src: String, flags: Int = 0): Re =
@@ -175,11 +184,11 @@ object Re extends ReBuilder {
 
 trait ReBuilder extends RegexVisitor[Re, CharClass] {
 
-  override def visitCharacter(codePoint: Int) =
-    Re.Character(codePoint)
+  override def visitCharacter(codePoint: Int, flags: Int) =
+    Re.Character(codePoint, flags)
 
-  override def visitRange(fromCodePoint: Int, toCodePoint: Int) =
-    Re.CharacterRange(fromCodePoint, toCodePoint)
+  override def visitRange(fromCodePoint: Int, toCodePoint: Int, flags: Int) =
+    Re.CharacterRange(fromCodePoint, toCodePoint, flags)
 
   override def visitNegated(negate: CharClass) =
     Re.NegatedClass(negate)
@@ -220,12 +229,12 @@ trait ReBuilder extends RegexVisitor[Re, CharClass] {
   override def visitCharacterClass(cls: CharClass) =
     cls
 
-  override def visitBuiltinClass(cls: JBuiltinClass) =
+  override def visitBuiltinClass(cls: JBuiltinClass, flags: Int) =
     Re.BuiltinClass(cls)
 
-  override def visitUnicodeBlock(block: UnicodeBlock, negated: Boolean) =
+  override def visitUnicodeBlock(block: UnicodeBlock, negated: Boolean, flags: Int) =
     Re.UnicodeBlockClass(block, negated)
 
-  override def visitUnicodeScript(script: UnicodeScript, negated: Boolean) =
+  override def visitUnicodeScript(script: UnicodeScript, negated: Boolean, flags: Int) =
     Re.UnicodeScriptClass(script, negated)
 }

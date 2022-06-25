@@ -4,6 +4,8 @@ import static java.util.AbstractMap.SimpleImmutableEntry;
 
 import automata.util.IntRange;
 import automata.util.IntRangeSet;
+import java.util.Optional;
+import java.util.regex.Pattern;
 
 /**
  * Interpret character classes into range sets of unicode code points.
@@ -16,13 +18,19 @@ import automata.util.IntRangeSet;
 public class CodePointSetVisitor implements CharClassVisitor<IntRangeSet> {
 
   @Override
-  public IntRangeSet visitCharacter(int codePoint) {
-    return IntRangeSet.of(IntRange.single(codePoint));
+  public IntRangeSet visitCharacter(int codePoint, int flags) {
+    final var single = IntRangeSet.of(IntRange.single(codePoint));
+    return ((flags & Pattern.CASE_INSENSITIVE) == 0)
+      ? single
+      : CodePoints.asciiCaseInsensitive(single);
   }
 
   @Override
-  public IntRangeSet visitRange(int startCodePoint, int endCodePoint) {
-    return IntRangeSet.of(IntRange.between(startCodePoint, endCodePoint));
+  public IntRangeSet visitRange(int startCodePoint, int endCodePoint, int flags) {
+    final var range = IntRangeSet.of(IntRange.between(startCodePoint, endCodePoint));
+    return ((flags & Pattern.CASE_INSENSITIVE) == 0)
+      ? range
+      : CodePoints.asciiCaseInsensitive(range);
   }
 
   @Override
@@ -41,20 +49,25 @@ public class CodePointSetVisitor implements CharClassVisitor<IntRangeSet> {
   }
 
   @Override
-  public IntRangeSet visitBuiltinClass(BuiltinClass cls) {
-    return cls.desugar(this);
+  public IntRangeSet visitBuiltinClass(BuiltinClass cls, int flags) {
+    return cls.desugar(this, flags);
   }
 
   @Override
-  public IntRangeSet visitUnicodeScript(Character.UnicodeScript script, boolean negated) {
+  public IntRangeSet visitUnicodeScript(Character.UnicodeScript script, boolean negated, int flags) {
     final var scriptCodePoints = CodePoints.scriptCodePoints(script);
     return negated ? visitNegated(scriptCodePoints) : scriptCodePoints;
   }
 
   @Override
-  public IntRangeSet visitUnicodeBlock(Character.UnicodeBlock block, boolean negated) {
+  public IntRangeSet visitUnicodeBlock(Character.UnicodeBlock block, boolean negated, int flags) {
     final var blockCodePoints = CodePoints.blockCodePoints(block);
     return negated ? visitNegated(blockCodePoints) : blockCodePoints;
+  }
+
+  @Override
+  public Optional<IntRangeSet> visitCodePointSet(IntRangeSet codePoints) {
+    return Optional.of(codePoints);
   }
 }
 

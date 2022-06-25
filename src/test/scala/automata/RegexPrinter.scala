@@ -68,14 +68,14 @@ object RegexPrinter extends RegexVisitor[RenderedWithPriority, RenderedWithPrior
   }
 
 
-  override def visitCharacter(codePoint: Int) =
+  override def visitCharacter(codePoint: Int, flags: Int) =
     RenderedWithPriority(
       rendered = charClassCodePoint(codePoint),
       priority = Priority.Top,
       singleCodePoint = Some(codePoint)
     )
 
-  override def visitRange(fromCodePoint: Int, toCodePoint: Int) =
+  override def visitRange(fromCodePoint: Int, toCodePoint: Int, flags: Int) =
     RenderedWithPriority(
       rendered = charClassCodePoint(fromCodePoint) + "-" +  charClassCodePoint(toCodePoint),
       priority = Priority.Range
@@ -183,7 +183,7 @@ object RegexPrinter extends RegexVisitor[RenderedWithPriority, RenderedWithPrior
       priority = Priority.Top
     )
 
-  override def visitBuiltinClass(cls: BuiltinClass) =
+  override def visitBuiltinClass(cls: BuiltinClass, flags: Int) =
     RenderedWithPriority(
       rendered = cls match {
         case BuiltinClass.DOT => "."
@@ -201,13 +201,13 @@ object RegexPrinter extends RegexVisitor[RenderedWithPriority, RenderedWithPrior
       priority = Priority.Top
     )
 
-  override def visitUnicodeBlock(block: UnicodeBlock, negated: Boolean) =
+  override def visitUnicodeBlock(block: UnicodeBlock, negated: Boolean, flags: Int) =
     RenderedWithPriority(
       rendered = s"\\${if (negated) "P" else "p"}{In$block}",
       priority = Priority.Top
     )
 
-  override def visitUnicodeScript(script: UnicodeScript, negated: Boolean) =
+  override def visitUnicodeScript(script: UnicodeScript, negated: Boolean, flags: Int) =
     RenderedWithPriority(
       rendered = s"\\${if (negated) "P" else "p"}{Is$script}",
       priority = Priority.Top

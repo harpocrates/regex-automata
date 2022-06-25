@@ -28,9 +28,9 @@ trait ReGenerator extends ArbitraryExtensions {
       10 -> Gen.resultOf(Re.Character(_: Int))(arbitraryCodePoint),
       1 -> Gen
         .resultOf(Re.CharacterRange(_: Int, _: Int))(arbitraryCodePoint, arbitraryCodePoint)
-        .map { case range @ Re.CharacterRange(from, to) =>
+        .map { case range @ Re.CharacterRange(from, to, flags) =>
           // Make sure bounds are ordered
-          val ordered = if (from > to) Re.CharacterRange(to, from) else range
+          val ordered = if (from > to) Re.CharacterRange(to, from, flags) else range
 
           // Max sure the range isn't too big
           maximumRangeSize match {

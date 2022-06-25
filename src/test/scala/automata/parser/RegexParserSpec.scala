@@ -472,7 +472,10 @@ class RegexParserSpec extends AnyFunSpec with ScalaCheckDrivenPropertyChecks wit
   describe("comment mode") {
     testParse(
       "(?x)  a  b   ",
-      Re.Concat(Re.Concat(Re.Epsilon, Re.Character('a')), Re.Character('b'))
+      Re.Concat(
+        Re.Concat(Re.Epsilon, Re.Character('a', Pattern.COMMENTS)),
+        Re.Character('b', Pattern.COMMENTS)
+      )
     )
 
     testParse(
@@ -480,25 +483,34 @@ class RegexParserSpec extends AnyFunSpec with ScalaCheckDrivenPropertyChecks wit
         |        # continues onto this line
         | b      # then ends in another comment
         |""".stripMargin,
-      Re.Concat(Re.Concat(Re.Epsilon, Re.Character('a')), Re.Character('b'))
+      Re.Concat(
+        Re.Concat(Re.Epsilon, Re.Character('a', Pattern.COMMENTS)),
+        Re.Character('b', Pattern.COMMENTS)
+      )
     )
 
     // Effect of `Pattern.UNIX_LINES` on deciding where a comment line ends
     testParse(
       "(?x)  a # and a comment goes here \r b",
-      Re.Concat(Re.Concat(Re.Epsilon, Re.Character('a')), Re.Character('b'))
+      Re.Concat(
+        Re.Concat(Re.Epsilon, Re.Character('a', Pattern.COMMENTS)),
+        Re.Character('b', Pattern.COMMENTS)
+      )
     )
     testParse(
       "(?xd)  a # and a comment goes here \r b",
-      Re.Concat(Re.Epsilon, Re.Character('a'))
+      Re.Concat(Re.Epsilon, Re.Character('a', Pattern.COMMENTS | Pattern.UNIX_LINES))
     )
 
     // Escaping
     testParse(
       "(?x)   a \\# \\   ",
       Re.Concat(
-        Re.Concat(Re.Concat(Re.Epsilon, Re.Character('a')), Re.Character('#')),
-        Re.Character(' ')
+        Re.Concat(
+          Re.Concat(Re.Epsilon, Re.Character('a', Pattern.COMMENTS)),
+          Re.Character('#', Pattern.COMMENTS)
+        ),
+        Re.Character(' ', Pattern.COMMENTS)
       )
     )
   }

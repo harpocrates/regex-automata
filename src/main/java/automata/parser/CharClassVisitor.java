@@ -1,5 +1,8 @@
 package automata.parser;
 
+import automata.util.IntRangeSet;
+import java.util.Optional;
+
 /**
  * Bottom-up traversal of the character class AST.
  *
@@ -16,16 +19,18 @@ public interface CharClassVisitor<C> {
    * code units).
    *
    * @param codePoint unicode code point to match
+   * @param flags bitmask of regular expression flags
    */
-  C visitCharacter(int codePoint);
+  C visitCharacter(int codePoint, int flags);
 
   /**
    * Matches a range of abstract characters.
    *
    * @param startCodePoint first code point in the range (inclusive)
    * @param endCodePoint last code point in the range (inclusive)
+   * @param flags bitmask of regular expression flags
    */
-  C visitRange(int startCodePoint, int endCodePoint);
+  C visitRange(int startCodePoint, int endCodePoint, int flags);
 
   /**
    * Matches all characters that don't match another pattern.
@@ -58,23 +63,40 @@ public interface CharClassVisitor<C> {
    * Matches characters inside a builtin character class.
    *
    * @param cls builtin class
+   * @param flags bitmask of regular expression flags
    */
-  C visitBuiltinClass(BuiltinClass cls);
+  C visitBuiltinClass(BuiltinClass cls, int flags);
 
   /**
    * Matches characters inside a specified unicode block.
    *
    * @param block unicode block
    * @param negated match characters outside the block
+   * @param flags bitmask of regular expression flags
    */
-  C visitUnicodeBlock(Character.UnicodeBlock block, boolean negated);
+  C visitUnicodeBlock(Character.UnicodeBlock block, boolean negated, int flags);
 
   /**
    * Matches characters inside a specified unicode script.
    *
    * @param script unicode script
    * @param negated match characters outside the script
+   * @param flags bitmask of regular expression flags
    */
-  C visitUnicodeScript(Character.UnicodeScript script, boolean negated);
+  C visitUnicodeScript(Character.UnicodeScript script, boolean negated, int flags);
+
+  /**
+   * Matches any character inside the set of code points.
+   *
+   * @param codePointSet set of accepted code points
+   * @return nothing if the code point set is empty
+   */
+  default Optional<C> visitCodePointSet(IntRangeSet codePoints) {
+    return codePoints
+      .ranges()
+      .stream()
+      .<C>map(range -> visitRange(range.lowerBound(), range.upperBound(), 0))
+      .reduce((l, r) -> visitUnion(l, r));
+  }
 }
 

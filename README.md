@@ -31,6 +31,11 @@ features) installed as well as [SBT][0]. Then,
     sbt test           # compile and run the tests
     sbt bench/Jmh/run  # compile and run all JMH benchmarks
 
+There's also a test driver that consumes `.txt` test cases like those used in
+the OpenJDK tests for `java.util.regex` (in `test/jdk/java/util/regex/*.txt`):
+
+    sbt 'tester/run TestCases.txt'
+
 ## References
 
 This would not have been possible without the following papers and blogs:

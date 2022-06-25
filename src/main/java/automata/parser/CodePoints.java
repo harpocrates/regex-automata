@@ -4,6 +4,7 @@ import static java.util.AbstractMap.SimpleImmutableEntry;
 
 import automata.util.IntRange;
 import automata.util.IntRangeSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -78,5 +79,40 @@ public final class CodePoints {
       UNICODE_RANGE,
       codePoint -> Character.getType(codePoint) == category
     );
+  }
+
+  /**
+   * Given a set of code points, compute the closure under case transformation
+   * of ASCII characters.
+   *
+   * @param codePoints input set of code points
+   * @return closure under ASCII case transformation
+   */
+  public static IntRangeSet asciiCaseInsensitive(IntRangeSet codePoints) {
+    var upperAscii = codePoints.intersection(IntRangeSet.of(IntRange.between('A', 'Z')));
+    var lowerAscii = codePoints.intersection(IntRangeSet.of(IntRange.between('a', 'z')));
+    final int caseDiff = 'A' - 'a';
+    if (!upperAscii.isEmpty() || !lowerAscii.isEmpty()) {
+      return IntRangeSet.union(
+        List.of(
+          codePoints,
+          new IntRangeSet(
+            upperAscii
+              .ranges()
+              .stream()
+              .map(r -> IntRange.between(r.lowerBound() - caseDiff, r.upperBound() - caseDiff))
+              .toList()
+          ),
+          new IntRangeSet(
+            lowerAscii
+              .ranges()
+              .stream()
+              .map(r -> IntRange.between(r.lowerBound() + caseDiff, r.upperBound() + caseDiff))
+              .toList()
+          )
+        )
+      );
+    }
+    return codePoints;
   }
 }

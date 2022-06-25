@@ -62,7 +62,8 @@ public final class RegexParser<A, C> {
     if (wildcardPrefix) {
       final D anyCodePoint = visitor.visitRange(
         Character.MIN_CODE_POINT,
-        Character.MAX_CODE_POINT
+        Character.MAX_CODE_POINT,
+        parser.regexFlags
       );
       prefix = visitor.visitKleene(visitor.visitCharacterClass(anyCodePoint), true);
     }
@@ -431,7 +432,7 @@ public final class RegexParser<A, C> {
 
     return parseLiteralString()
       .codePoints()
-      .<C>mapToObj(visitor::visitCharacter)
+      .<C>mapToObj(cp -> visitor.visitCharacter(cp, regexFlags))
       .<A>map(visitor::visitCharacterClass)
       .<A>reduce(visitor::visitConcatenation)
       .orElseGet(visitor::visitEpsilon);
@@ -447,7 +448,7 @@ public final class RegexParser<A, C> {
   private C parseCharacterClass() throws PatternSyntaxException {
     C cls = parseCharacterClassOrCodePoint(false, false);
     if (cls == null) {
-      cls = visitor.visitCharacter(stashedCodePoint);
+      cls = visitor.visitCharacter(stashedCodePoint, regexFlags);
     }
     return cls;
   }
@@ -474,7 +475,7 @@ public final class RegexParser<A, C> {
           stashedCodePoint = '.';
           return null;
         } else {
-          return visitor.visitBuiltinClass(BuiltinClass.DOT);
+          return visitor.visitBuiltinClass(BuiltinClass.DOT, regexFlags);
         }
 
       // Character class
@@ -547,7 +548,7 @@ public final class RegexParser<A, C> {
               throw error("Cannot end class range with character class");
             }
             position++;
-            return visitor.visitBuiltinClass(BuiltinClass.CHARACTERS.get(c));
+            return visitor.visitBuiltinClass(BuiltinClass.CHARACTERS.get(c), regexFlags);
 
           // Bell character
           case 'a':
@@ -734,7 +735,7 @@ public final class RegexParser<A, C> {
             } else {
               return characters
                 .codePoints()
-                .<C>mapToObj(visitor::visitCharacter)
+                .<C>mapToObj(cp -> visitor.visitCharacter(cp, regexFlags))
                 .<C>reduce(visitor::visitUnion)
                 .get();
             }
@@ -807,7 +808,7 @@ public final class RegexParser<A, C> {
         case "block":
           try {
             final var block = Character.UnicodeBlock.forName(value);
-            return visitor.visitUnicodeBlock(block, negated);
+            return visitor.visitUnicodeBlock(block, negated, regexFlags);
           } catch (IllegalArgumentException err) {
             throw error("Unknown unicode block: " + value, propertyNamePosition + key.length() + 1);
           }
@@ -816,7 +817,7 @@ public final class RegexParser<A, C> {
         case "script":
           try {
             final var script = Character.UnicodeScript.forName(value);
-            return visitor.visitUnicodeScript(script, negated);
+            return visitor.visitUnicodeScript(script, negated, regexFlags);
           } catch (IllegalArgumentException err) {
             throw error("Unknown unicode script: " + value, propertyNamePosition + key.length() + 1);
           }
@@ -839,7 +840,7 @@ public final class RegexParser<A, C> {
       } catch (IllegalArgumentException err) {
         throw error("Unknown unicode block: " + blockName, propertyNamePosition);
       }
-      return visitor.visitUnicodeBlock(block, negated);
+      return visitor.visitUnicodeBlock(block, negated, regexFlags);
     }
 
     // Script or property
@@ -851,7 +852,7 @@ public final class RegexParser<A, C> {
       } catch (IllegalArgumentException err) {
         throw error("Unknown unicode script: " + scriptName, propertyNamePosition);
       }
-      return visitor.visitUnicodeScript(script, negated);
+      return visitor.visitUnicodeScript(script, negated, regexFlags);
     }
 
 
@@ -953,10 +954,10 @@ public final class RegexParser<A, C> {
       if (parseRange) {
         position++;
         parseCharacterClassOrCodePoint(true, true);
-        return visitor.visitRange(ch, stashedCodePoint);
+        return visitor.visitRange(ch, stashedCodePoint, regexFlags);
       }
     }
-    return visitor.visitCharacter(ch);
+    return visitor.visitCharacter(ch, regexFlags);
   }
 
   /**

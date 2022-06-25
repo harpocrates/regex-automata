@@ -1,6 +1,8 @@
 package automata.parser;
 
+import automata.util.IntRangeSet;
 import java.util.Map;
+import java.util.regex.Pattern;
 
 /**
  * Special character classes.
@@ -13,8 +15,13 @@ public enum BuiltinClass {
    */
   DOT {
     @Override
-    public <D> D desugar(CharClassVisitor<D> visitor) {
-      return visitor.visitRange(Character.MIN_CODE_POINT, Character.MAX_CODE_POINT);
+    public <D> D desugar(CharClassVisitor<D> visitor, int flags) {
+      D dotAll = visitor.visitRange(Character.MIN_CODE_POINT, Character.MAX_CODE_POINT, flags);
+      if ((flags & Pattern.DOTALL) == 0) {
+        final D lineTerminator = visitor.visitNegated(LINE_TERMINATOR.desugar(visitor, flags));
+        dotAll = visitor.visitIntersection(dotAll, lineTerminator);
+      }
+      return dotAll;
     }
   },
 
@@ -23,8 +30,16 @@ public enum BuiltinClass {
    */
   DIGIT {
     @Override
-    public <D> D desugar(CharClassVisitor<D> visitor) {
-      return visitor.visitRange('0', '9');
+    public <D> D desugar(CharClassVisitor<D> visitor, int flags) {
+      if ((flags & Pattern.UNICODE_CHARACTER_CLASS) != 0) {
+        final var unicodeDigits = IntRangeSet.matching(
+          CodePoints.UNICODE_RANGE,
+          Character::isDigit
+        );
+        return visitor.visitCodePointSet(unicodeDigits).get();
+      } else {
+        return visitor.visitRange('0', '9', flags);
+      }
     }
   },
 
@@ -33,8 +48,8 @@ public enum BuiltinClass {
    */
   NON_DIGIT {
     @Override
-    public <D> D desugar(CharClassVisitor<D> visitor) {
-      return visitor.visitNegated(DIGIT.desugar(visitor));
+    public <D> D desugar(CharClassVisitor<D> visitor, int flags) {
+      return visitor.visitNegated(DIGIT.desugar(visitor, flags));
     }
   },
 
@@ -43,16 +58,16 @@ public enum BuiltinClass {
    */
   HORIZONTAL_WHITE_SPACE {
     @Override
-    public <D> D desugar(CharClassVisitor<D> visitor) {
-      D space = visitor.visitCharacter(' ');
-      space = visitor.visitUnion(space, visitor.visitCharacter('\t'));
-      space = visitor.visitUnion(space, visitor.visitCharacter('\u00A0'));
-      space = visitor.visitUnion(space, visitor.visitCharacter('\u1680'));
-      space = visitor.visitUnion(space, visitor.visitCharacter('\u180e'));
-      space = visitor.visitUnion(space, visitor.visitRange('\u2000', '\u200a'));
-      space = visitor.visitUnion(space, visitor.visitCharacter('\u202f'));
-      space = visitor.visitUnion(space, visitor.visitCharacter('\u205f'));
-      space = visitor.visitUnion(space, visitor.visitCharacter('\u3000'));
+    public <D> D desugar(CharClassVisitor<D> visitor, int flags) {
+      D space = visitor.visitCharacter(' ', flags);
+      space = visitor.visitUnion(space, visitor.visitCharacter('\t', flags));
+      space = visitor.visitUnion(space, visitor.visitCharacter('\u00A0', flags));
+      space = visitor.visitUnion(space, visitor.visitCharacter('\u1680', flags));
+      space = visitor.visitUnion(space, visitor.visitCharacter('\u180e', flags));
+      space = visitor.visitUnion(space, visitor.visitRange('\u2000', '\u200a', flags));
+      space = visitor.visitUnion(space, visitor.visitCharacter('\u202f', flags));
+      space = visitor.visitUnion(space, visitor.visitCharacter('\u205f', flags));
+      space = visitor.visitUnion(space, visitor.visitCharacter('\u3000', flags));
       return space;
     }
   },
@@ -62,8 +77,8 @@ public enum BuiltinClass {
    */
   NON_HORIZONTAL_WHITE_SPACE {
     @Override
-    public <D> D desugar(CharClassVisitor<D> visitor) {
-      return visitor.visitNegated(HORIZONTAL_WHITE_SPACE.desugar(visitor));
+    public <D> D desugar(CharClassVisitor<D> visitor, int flags) {
+      return visitor.visitNegated(HORIZONTAL_WHITE_SPACE.desugar(visitor, flags));
     }
   },
 
@@ -72,13 +87,13 @@ public enum BuiltinClass {
    */
   WHITE_SPACE {
     @Override
-    public <D> D desugar(CharClassVisitor<D> visitor) {
-      D space = visitor.visitCharacter(' ');
-      space = visitor.visitUnion(space, visitor.visitCharacter('\t'));
-      space = visitor.visitUnion(space, visitor.visitCharacter('\n'));
-      space = visitor.visitUnion(space, visitor.visitCharacter('\u000B'));
-      space = visitor.visitUnion(space, visitor.visitCharacter('\f'));
-      space = visitor.visitUnion(space, visitor.visitCharacter('\r'));
+    public <D> D desugar(CharClassVisitor<D> visitor, int flags) {
+      D space = visitor.visitCharacter(' ', flags);
+      space = visitor.visitUnion(space, visitor.visitCharacter('\t', flags));
+      space = visitor.visitUnion(space, visitor.visitCharacter('\n', flags));
+      space = visitor.visitUnion(space, visitor.visitCharacter('\u000B', flags));
+      space = visitor.visitUnion(space, visitor.visitCharacter('\f', flags));
+      space = visitor.visitUnion(space, visitor.visitCharacter('\r', flags));
       return space;
     }
   },
@@ -88,8 +103,8 @@ public enum BuiltinClass {
    */
   NON_WHITE_SPACE {
     @Override
-    public <D> D desugar(CharClassVisitor<D> visitor) {
-      return visitor.visitNegated(WHITE_SPACE.desugar(visitor));
+    public <D> D desugar(CharClassVisitor<D> visitor, int flags) {
+      return visitor.visitNegated(WHITE_SPACE.desugar(visitor, flags));
     }
   },
 
@@ -98,14 +113,14 @@ public enum BuiltinClass {
    */
   VERTICAL_WHITE_SPACE {
     @Override
-    public <D> D desugar(CharClassVisitor<D> visitor) {
-      D space = visitor.visitCharacter('\n');
-      space = visitor.visitUnion(space, visitor.visitCharacter('\u000B'));
-      space = visitor.visitUnion(space, visitor.visitCharacter('\f'));
-      space = visitor.visitUnion(space, visitor.visitCharacter('\r'));
-      space = visitor.visitUnion(space, visitor.visitCharacter('\u0085'));
-      space = visitor.visitUnion(space, visitor.visitCharacter('\u2028'));
-      space = visitor.visitUnion(space, visitor.visitCharacter('\u2029'));
+    public <D> D desugar(CharClassVisitor<D> visitor, int flags) {
+      D space = visitor.visitCharacter('\n', flags);
+      space = visitor.visitUnion(space, visitor.visitCharacter('\u000B', flags));
+      space = visitor.visitUnion(space, visitor.visitCharacter('\f', flags));
+      space = visitor.visitUnion(space, visitor.visitCharacter('\r', flags));
+      space = visitor.visitUnion(space, visitor.visitCharacter('\u0085', flags));
+      space = visitor.visitUnion(space, visitor.visitCharacter('\u2028', flags));
+      space = visitor.visitUnion(space, visitor.visitCharacter('\u2029', flags));
       return space;
     }
   },
@@ -115,8 +130,8 @@ public enum BuiltinClass {
    */
   NON_VERTICAL_WHITE_SPACE {
     @Override
-    public <D> D desugar(CharClassVisitor<D> visitor) {
-      return visitor.visitNegated(VERTICAL_WHITE_SPACE.desugar(visitor));
+    public <D> D desugar(CharClassVisitor<D> visitor, int flags) {
+      return visitor.visitNegated(VERTICAL_WHITE_SPACE.desugar(visitor, flags));
     }
   },
 
@@ -125,11 +140,11 @@ public enum BuiltinClass {
    */
   WORD {
     @Override
-    public <D> D desugar(CharClassVisitor<D> visitor) {
-      D word = visitor.visitCharacter('_');
-      word = visitor.visitUnion(word, visitor.visitRange('a', 'z'));
-      word = visitor.visitUnion(word, visitor.visitRange('A', 'Z'));
-      word = visitor.visitUnion(word, visitor.visitRange('0', '9'));
+    public <D> D desugar(CharClassVisitor<D> visitor, int flags) {
+      D word = visitor.visitCharacter('_', flags);
+      word = visitor.visitUnion(word, visitor.visitRange('a', 'z', flags));
+      word = visitor.visitUnion(word, visitor.visitRange('A', 'Z', flags));
+      word = visitor.visitUnion(word, visitor.visitRange('0', '9', flags));
       return word;
     }
   },
@@ -139,12 +154,33 @@ public enum BuiltinClass {
    */
   NON_WORD {
     @Override
-    public <D> D desugar(CharClassVisitor<D> visitor) {
-      return visitor.visitNegated(WORD.desugar(visitor));
+    public <D> D desugar(CharClassVisitor<D> visitor, int flags) {
+      return visitor.visitNegated(WORD.desugar(visitor, flags));
+    }
+  },
+
+  /**
+   * Line terminator.
+   *
+   * Note: this is not a user-writable character class. It is also not _exactly_
+   * what is understood by a "line terminator" in the context of `^` or `$`
+   * under multiline mode: it is missing the two codepoint sequence `\r\n`.
+   */
+  LINE_TERMINATOR {
+    @Override
+    public <D> D desugar(CharClassVisitor<D> visitor, int flags) {
+      D term = visitor.visitCharacter('\n', flags);
+      if ((flags & Pattern.UNIX_LINES) == 0) {
+        term = visitor.visitUnion(term, visitor.visitCharacter('\r', flags));
+        term = visitor.visitUnion(term, visitor.visitCharacter('\u0085', flags));
+        term = visitor.visitUnion(term, visitor.visitCharacter('\u2028', flags));
+        term = visitor.visitUnion(term, visitor.visitCharacter('\u2029', flags));
+      }
+      return term;
     }
   };
 
-  public abstract <D> D desugar(CharClassVisitor<D> visitor);
+  public abstract <D> D desugar(CharClassVisitor<D> visitor, int flags);
 
   /**
    * Mapping from the character used to represent the class to the class.
