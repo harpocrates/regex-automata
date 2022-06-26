@@ -86,6 +86,14 @@ public interface CharClassVisitor<C> {
   C visitUnicodeScript(Character.UnicodeScript script, boolean negated, int flags);
 
   /**
+   * Matches characters in a property class.
+   *
+   * @param propertyClass property class
+   * @param flags bitmask of regular expression flags
+   */
+  C visitPropertyClass(PropertyClass propertyClass, boolean negated, int flags);
+
+  /**
    * Matches any character inside the set of code points.
    *
    * @param codePointSet set of accepted code points

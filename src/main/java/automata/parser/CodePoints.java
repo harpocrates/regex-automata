@@ -7,6 +7,7 @@ import automata.util.IntRangeSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.stream.IntStream;
 
 /**
  * Utility class for computing sets of code units.
@@ -69,15 +70,25 @@ public final class CodePoints {
   }
 
   /**
-   * Tabulate the set of code points inside a unicode category.
+   * Tabulate the set of code points inside unicode categories.
    *
-   * @param category unicode category
+   * @param categories unicode categories
    * @return set of code points contained in the block
    */
-  public static IntRangeSet categoryCodePoints(int category) {
+  public static IntRangeSet categoryCodePoints(int... categories) {
+
+    /* Since there are only thirty categories (0 to 30 inclusive), use a bitmask
+     * to check containment. This reduces the work in `matching` to be the same
+     * regardless of how many categories are included.
+     */
+    final int categoryBitmask = IntStream
+      .of(categories)
+      .map(category -> 1 << category)
+      .reduce(0, (m1, m2) -> m1 | m2);
+
     return IntRangeSet.matching(
       UNICODE_RANGE,
-      codePoint -> Character.getType(codePoint) == category
+      codePoint -> ((1 << Character.getType(codePoint)) & categoryBitmask) != 0
     );
   }
 

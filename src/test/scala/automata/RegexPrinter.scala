@@ -1,6 +1,6 @@
 package automata
 
-import automata.parser.{RegexVisitor, BuiltinClass, Boundary}
+import automata.parser.{RegexVisitor, BuiltinClass, PropertyClass, Boundary}
 import scala.annotation.switch
 import java.lang.Character.{UnicodeBlock, UnicodeScript}
 import java.util.OptionalInt
@@ -212,4 +212,11 @@ object RegexPrinter extends RegexVisitor[RenderedWithPriority, RenderedWithPrior
       rendered = s"\\${if (negated) "P" else "p"}{Is$script}",
       priority = Priority.Top
     )
+
+  override def visitPropertyClass(propertyClass: PropertyClass, negated: Boolean, flags: Int) =
+    RenderedWithPriority(
+      rendered = s"\\${if (negated) "P" else "p"}{${propertyClass.label}}",
+      priority = Priority.Top
+    )
+
 }

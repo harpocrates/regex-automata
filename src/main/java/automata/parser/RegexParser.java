@@ -846,6 +846,12 @@ public final class RegexParser<A, C> {
     // Script or property
     if (propertyName.startsWith("Is")) {
       final var scriptName = propertyName.substring(2);
+
+      final PropertyClass propertyClass = PropertyClass.CLASSES.get(scriptName);
+      if (propertyClass != null) {
+        return visitor.visitPropertyClass(propertyClass, negated, regexFlags);
+      }
+
       final Character.UnicodeScript script;
       try {
         script = Character.UnicodeScript.forName(scriptName);
@@ -855,8 +861,11 @@ public final class RegexParser<A, C> {
       return visitor.visitUnicodeScript(script, negated, regexFlags);
     }
 
-
     // Property
+    final PropertyClass propertyClass = PropertyClass.CLASSES.get(propertyName);
+    if (propertyClass != null) {
+      return visitor.visitPropertyClass(propertyClass, negated, regexFlags);
+    }
     throw error("Unknown property " + propertyName, propertyNamePosition);
   }
 

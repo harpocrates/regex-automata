@@ -1,6 +1,13 @@
 package automata
 
-import automata.parser.{RegexParser, BuiltinClass => JBuiltinClass, Boundary => JBoundary, RegexVisitor, CharClassVisitor}
+import automata.parser.{
+  RegexParser,
+  RegexVisitor,
+  CharClassVisitor,
+  BuiltinClass => JBuiltinClass,
+  Boundary => JBoundary,
+  PropertyClass => JPropertyClass
+}
 import scala.jdk.OptionConverters._
 import java.lang.Character.{UnicodeBlock, UnicodeScript}
 import java.util.OptionalInt;
@@ -178,6 +185,16 @@ object Re extends ReBuilder {
       visitor.visitUnicodeScript(script, negated, flags)
   }
 
+  /** Property class */
+  final case class PropertyClass(
+    propertyClass: JPropertyClass,
+    negated: Boolean,
+    flags: Int = 0
+  ) extends CharClass {
+    override def acceptCharClass[A](visitor: CharClassVisitor[A]): A =
+      visitor.visitPropertyClass(propertyClass, negated, flags)
+  }
+
   def parse(src: String, flags: Int = 0): Re =
     RegexParser.parse(Re, src, flags, false, false)
 }
@@ -230,11 +247,14 @@ trait ReBuilder extends RegexVisitor[Re, CharClass] {
     cls
 
   override def visitBuiltinClass(cls: JBuiltinClass, flags: Int) =
-    Re.BuiltinClass(cls)
+    Re.BuiltinClass(cls, flags)
 
   override def visitUnicodeBlock(block: UnicodeBlock, negated: Boolean, flags: Int) =
-    Re.UnicodeBlockClass(block, negated)
+    Re.UnicodeBlockClass(block, negated, flags)
 
   override def visitUnicodeScript(script: UnicodeScript, negated: Boolean, flags: Int) =
-    Re.UnicodeScriptClass(script, negated)
+    Re.UnicodeScriptClass(script, negated, flags)
+
+  override def visitPropertyClass(propertyClass: JPropertyClass, negated: Boolean, flags: Int) =
+    Re.PropertyClass(propertyClass, negated, flags)
 }
